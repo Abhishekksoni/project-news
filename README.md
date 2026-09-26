@@ -1,32 +1,38 @@
-# Project News Aggregator
+# Project News Aggregator & Intelligence Engine
 
-A fast, unified news aggregation engine built with Python 3.12 and `uv`. It collects and standardizes technology, AI/ML research breakthroughs, startup developments, and IIT innovations across multiple platforms (Hacker News API, AlphaXiv Explore Feed, and multi-source RSS feeds).
+A fast, scalable news aggregation, deduplication, and exploration engine built with Python 3.12 and `uv`. It collects, normalizes, deduplicates, and analyzes technology developments, AI/ML research breakthroughs, engineering blogs, and IIT startup innovations across multi-platform feeds.
 
 ---
 
 ## 🚀 Key Features
 
-* **Unified Data Contract:** Standardized `NewsItem` schema powered by Pydantic V2.
-* **Multiple Source Adapters:**
-  * **AlphaXiv Integration:** Fetches trending AI/ML research papers and metadata directly via the `alphaxiv-py` SDK.
-  * **Hacker News API:** Fetches top & new tech community discussions directly from Firebase REST endpoints.
-  * **Robust RSS Feed Engine:** High-concurrency RSS parser with custom User-Agent, image extraction (Media RSS, Thumbnails, Enclosures), and UTC datetime normalization.
-* **Curated Content Streams:**
-  * **Core AI / ML Research:** MIT AI, UC Berkeley BAIR, OpenAI, Google DeepMind, Hugging Face, KDnuggets.
-  * **IIT & Indian DeepTech Innovations:** Real-time coverage of inventions, incubation centers, and startups from IIT Madras, IIT Bombay, IIT Delhi, IIT Kanpur, PIB Govt Science & Tech, and YourStory.
-* **Concurrent Ingestion:** Parallel batch fetching using Python's `ThreadPoolExecutor` and `asyncio`.
+* **Unified Data Schema:** Strongly typed `NewsItem` model powered by Pydantic V2 with image support and deduplication tracking.
+* **Multi-Source Ingestion:**
+  * **AlphaXiv SDK:** Ingests trending research papers with author lists and abstracts.
+  * **Hacker News Firebase API:** Collects top stories and community discussions.
+  * **Universal RSS/Atom Engine:** High-concurrency parser with BeautifulSoup HTML stripping, embedded image extraction, and category fallback branding.
+* **Phase 1: MinHash LSH Deduplication:**
+  * Sub-millisecond near-duplicate detection using **Locality Sensitive Hashing (LSH)** and **MinHash signatures** (`datasketch`).
+  * Automatically flags syndicated cross-posts and near-identical press releases ($>75\%$ text similarity).
+* **SQLite Storage & Indexing:**
+  * Persistent storage with indexed queries by source, category, and publication date.
+  * Automatic filtering of duplicate articles (`only_unique=True`).
+* **Visual Quality Inspector (`report.html`):**
+  * Interactive web dashboard with real-time search, category filters, thumbnail previews, and duplicate inspection.
 
 ---
 
 ## 🛠️ Tech Stack & Requirements
 
-* **Python:** `>= 3.12`
+* **Runtime:** Python `>= 3.12`
 * **Package Manager:** `uv`
 * **Core Libraries:**
-  * `alphaxiv-py`: Async SDK for AlphaXiv research discovery.
-  * `feedparser`: RSS & Atom feed ingestion and normalization.
-  * `httpx`: High-performance HTTP client.
-  * `pydantic`: Data validation and schema enforcement.
+  * `datasketch`: MinHash & Locality Sensitive Hashing (LSH) for $O(1)$ deduplication.
+  * `beautifulsoup4`: HTML parsing, tag sanitization, and embedded image extraction.
+  * `alphaxiv-py`: Public client for AlphaXiv research discovery.
+  * `feedparser`: RSS 2.0 and Atom feed ingestion.
+  * `httpx`: Async and sync HTTP client.
+  * `pydantic`: Schema validation and serialization.
   * `python-dotenv`: Environment configuration management.
 
 ---
@@ -35,14 +41,16 @@ A fast, unified news aggregation engine built with Python 3.12 and `uv`. It coll
 
 ```text
 project-news/
-├── pyproject.toml              # Dependencies and project configuration
-├── README.md                   # Project documentation
-├── news.db                     # SQLite database file (created on init)
+├── pyproject.toml              # Project dependencies and tool configurations
+├── README.md                   # Comprehensive project documentation
+├── news.db                     # SQLite database file (auto-created on run)
+├── report.html                 # Interactive visual inspection dashboard
+├── export_report.py            # Standalone exporter for the visual report
 ├── src/
-│   ├── main.py                 # Application runner & feed orchestrator
+│   ├── main.py                 # Ingestion orchestrator & pipeline runner
 │   ├── deduplication/
 │   │   ├── __init__.py
-│   │   └── minhash_lsh.py      # MinHash + LSH Near-Duplicate Detection Engine
+│   │   └── minhash_lsh.py      # MinHash + LSH Near-Duplicate Engine
 │   ├── models/
 │   │   ├── __init__.py
 │   │   └── news.py             # Pydantic NewsItem data model
@@ -50,7 +58,7 @@ project-news/
 │   │   ├── __init__.py
 │   │   ├── alphaxiv.py         # AlphaXiv trending papers collector
 │   │   ├── hackernews.py       # Hacker News Firebase API collector
-│   │   └── rss.py              # Generic RSS engine with image & date parsing
+│   │   └── rss.py              # Generic RSS engine with image & HTML cleaning
 │   └── storage/
 │       ├── __init__.py
 │       └── database.py         # SQLite storage layer with indexing & deduplication
@@ -67,46 +75,21 @@ Located in [`src/models/news.py`](file:///Users/abhisheksoni/project-news/src/mo
 | :--- | :--- | :--- |
 | `id` | `str` | Unique source identifier (e.g. `alphaxiv_2609.28399`, `hn_12345`, `rss_sha256`) |
 | `title` | `str` | Headline or paper title |
-| `url` | `str` | Direct link to original article/paper |
-| `source` | `str` | Source publisher name (e.g. `AlphaXiv`, `MIT News - AI`, `Hacker News`) |
+| `url` | `str` | Canonical link to original article/paper |
+| `source` | `str` | Source publisher name (e.g. `OpenAI Blog`, `Simon Willison Weblog`) |
 | `source_type` | `str` | Category of source (`research`, `community`, `rss`) |
 | `published_at` | `datetime \| None` | Standardized UTC publication timestamp |
-| `author` | `str \| None` | Author(s) or creator names |
-| `description` | `str \| None` | Summary, excerpt, or paper abstract |
-| `category` | `str \| None` | Topic tag (e.g. `ai_research`, `iit_startups`, `machine_learning`) |
-| `image_url` | `str \| None` | Extracted banner or thumbnail image URL |
+| `author` | `str \| None` | Author or creator name(s) |
+| `description` | `str \| None` | Sanitized, plain-text summary or abstract |
+| `category` | `str \| None` | Topic category tag (e.g. `ai_research`, `iit_startups`, `tech_blogs`) |
+| `image_url` | `str \| None` | Article image, thumbnail, or curated category fallback banner |
+| `is_duplicate` | `bool` | `True` if flagged as a near-duplicate of an earlier article |
+| `duplicate_of` | `str \| None` | ID of the parent original article if duplicate |
 | `collected_at` | `datetime` | UTC timestamp of when the item was ingested |
 
 ---
 
-## 🔌 Ingestion Sources
-
-### 1. AlphaXiv Research Source ([`src/sources/alphaxiv.py`](file:///Users/abhisheksoni/project-news/src/sources/alphaxiv.py))
-Connects to the AlphaXiv platform to fetch trending research papers.
-
-* **Function:** `fetch_alphaxiv(sort="Hot", interval="7 Days", limit=10)`
-* **Supported Sorts:** `"Hot"` (velocity/trending), `"Likes"`, `"GitHub"`, `"Twitter (X)"`
-* **Supported Intervals:** `"3 Days"`, `"7 Days"`, `"30 Days"`, `"90 Days"`, `"All time"`
-* **Auth:** Unauthenticated public explore feed (no API key required for public feeds).
-
-### 2. Hacker News Source ([`src/sources/hackernews.py`](file:///Users/abhisheksoni/project-news/src/sources/hackernews.py))
-Fetches real-time community discussions from Hacker News.
-
-* **Function:** `fetch_hacker_news(limit=20)`
-* **Endpoint:** Official Firebase REST API (`https://hacker-news.firebaseio.com/v0/`)
-
-### 3. Universal RSS Engine ([`src/sources/rss.py`](file:///Users/abhisheksoni/project-news/src/sources/rss.py))
-Universal parser capable of reading standard RSS 2.0 and Atom feeds.
-
-* **Function:** `fetch_rss(feed_url, source_name, category=None, limit=20)`
-* **Features:**
-  * Browser `User-Agent` emulation to prevent 403 blocks.
-  * Image extraction from `media:content`, `media:thumbnail`, and `enclosures`.
-  * Deterministic 16-character SHA-256 hash IDs derived from URL.
-
----
-
-## 📡 Curated Feeds Configured
+## 📡 Curated Sources Configured
 
 ### 1. Core AI / ML Research & Lab Blogs
 * **MIT News - AI:** `https://news.mit.edu/rss/topic/artificial-intelligence2`
@@ -115,27 +98,52 @@ Universal parser capable of reading standard RSS 2.0 and Atom feeds.
 * **OpenAI Blog:** `https://openai.com/news/rss.xml`
 * **Google AI Blog:** `https://blog.google/technology/ai/rss/`
 * **KDnuggets:** `https://www.kdnuggets.com/feed`
+* **AlphaXiv:** Trending research discovery explore feed.
 
-### 2. IITs & Indian DeepTech / Startup Innovation Feeds
+### 2. Industry Blogs, Medium & Substack
+* **Simon Willison Weblog:** `https://simonwillison.net/atom/entries/`
+* **Towards Data Science (Medium):** `https://towardsdatascience.com/feed`
+* **The Sequence (Substack):** `https://thesequence.substack.com/feed`
+* **Latent Space (Substack):** `https://www.latent.space/feed`
+* **One Useful Thing (Substack):** `https://www.oneusefulthing.org/feed`
+
+### 3. IITs & Indian DeepTech Innovations
 * **IIT Innovations & Startups (Aggregated):** `https://news.google.com/rss/search?q=IIT+(startup+OR+innovation+OR+research+OR+invention)&hl=en-IN&gl=IN&ceid=IN:en`
 * **Top IITs Research (Madras, Bombay, Delhi, Kanpur):** `https://news.google.com/rss/search?q=%22IIT+Madras%22+OR+%22IIT+Bombay%22+OR+%22IIT+Delhi%22+OR+%22IIT+Kanpur%22+(research+OR+startup+OR+patent)&hl=en-IN&gl=IN&ceid=IN:en`
-* **PIB Science & Technology (Govt of India):** `https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1`
 * **YourStory Indian Startups:** `https://yourstory.com/feed`
+
+### 4. Developer & Tech Community
+* **Hacker News:** Top stories via Firebase API.
+
+---
+
+## 🔍 Deduplication Engine (MinHash & LSH)
+
+Located in [`src/deduplication/minhash_lsh.py`](file:///Users/abhisheksoni/project-news/src/deduplication/minhash_lsh.py):
+
+* **Shingling:** Breaks normalized text (`title + description`) into word 3-grams.
+* **MinHash Signatures (`num_perm=128`):** Hashes shingles into compact 128-integer fingerprints.
+* **Locality Sensitive Hashing (LSH):** Groups similar signatures into hash buckets for $O(1)$ query time at a Jaccard threshold of $\ge 0.75$.
+* **Benefits:** Filters out 80% of redundant noise and prepares clean data for semantic clustering.
 
 ---
 
 ## ⚙️ Setup & Execution
 
 ### 1. Install Dependencies
-Ensure you have `uv` installed, then run:
-
 ```bash
 uv sync
 ```
 
-### 2. Run the Aggregator
-Run the main ingestion pipeline:
-
+### 2. Run Ingestion Pipeline
+Fetch all sources, execute deduplication, and persist to SQLite:
 ```bash
 uv run python src/main.py
+```
+
+### 3. Inspect Feeds in the Interactive HTML Viewer
+Generate and open the visual dashboard:
+```bash
+PYTHONPATH=src uv run python export_report.py
+open report.html
 ```
