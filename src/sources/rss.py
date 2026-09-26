@@ -1,12 +1,15 @@
-"""Generic RSS/Atom feed parser with robust image extraction and HTML cleaning."""
+"""Generic RSS/Atom feed parser with robust image extraction, OpenGraph scraping, Google News URL decoding, and HTML cleaning."""
 
 from datetime import datetime, timezone
+from functools import lru_cache
 import hashlib
 import html
 import re
 
 from bs4 import BeautifulSoup
 import feedparser
+from googlenewsdecoder import gnewsdecoder
+import httpx
 
 from models.news import NewsItem
 
@@ -16,6 +19,9 @@ FALLBACK_IMAGES: dict[str, str] = {
     "iit_startups": "https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop&q=60",
     "iit_research": "https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&auto=format&fit=crop&q=60",
     "machine_learning": "https://images.unsplash.com/photo-1555949963-aa79dcee981c?w=800&auto=format&fit=crop&q=60",
+    "data_science": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=60",
+    "ai_engineering": "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&auto=format&fit=crop&q=60",
+    "ai_insights": "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&auto=format&fit=crop&q=60",
     "tech_blogs": "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&auto=format&fit=crop&q=60",
     "indian_startups": "https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=800&auto=format&fit=crop&q=60",
     "community": "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=60",
@@ -40,10 +46,76 @@ def _clean_html_text(raw_html: str | None) -> str | None:
     return text if text else None
 
 
-def _extract_image_url(entry: dict, content_html: str | None, category: str | None) -> str | None:
+from urllib.parse import urljoin
+
+
+@lru_cache(maxsize=1024)
+def _fetch_og_image(article_url: str) -> str | None:
+    """Fetch OpenGraph or Twitter preview image directly from the article webpage."""
+    if not article_url or not article_url.startswith("http"):
+        return None
+
+    try:
+        with httpx.Client(
+            timeout=5.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        ) as client:
+            resp = client.get(article_url)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text[:150000], "html.parser")
+                og = (
+                    soup.find("meta", property="og:image")
+                    or soup.find("meta", attrs={"name": "og:image"})
+                    or soup.find("meta", property="og:image:url")
+                    or soup.find("meta", property="og:image:secure_url")
+                    or soup.find("meta", property="twitter:image")
+                    or soup.find("meta", attrs={"name": "twitter:image"})
+                    or soup.find("meta", attrs={"name": "twitter:image:src"})
+                    or soup.find("link", rel="image_src")
+                )
+                if og:
+                    content = og.get("content") or og.get("href")
+                    if content and content.strip():
+                        img_url = content.strip()
+                        # Resolve relative URLs
+                        if not img_url.startswith("http"):
+                            img_url = urljoin(str(resp.url), img_url)
+                        if img_url.startswith("http"):
+                            return img_url
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_canonical_url(url: str) -> str:
+    """Resolve Google News redirection tokens to the real destination publisher URL."""
+    if "news.google.com/rss/articles" in url or "news.google.com/articles" in url:
+        try:
+            decoded = gnewsdecoder(url)
+            if isinstance(decoded, dict) and decoded.get("decoded_url"):
+                return decoded["decoded_url"]
+            elif isinstance(decoded, str) and decoded.startswith("http"):
+                return decoded
+        except Exception:
+            pass
+    return url
+
+
+def _extract_image_url(
+    entry: dict, content_html: str | None, article_url: str, category: str | None
+) -> str | None:
     """
-    Extract best available image from media RSS tags, enclosures, or embedded HTML img tags.
-    Falls back to a curated category image if none is found.
+    Extract best available image from:
+    1. Media RSS tags (media:content, media:thumbnail)
+    2. Enclosures
+    3. Embedded <img> in HTML summary/content
+    4. OpenGraph <meta property="og:image"> scraped from article URL
+    5. Curated category fallback banner
     """
     # 1. media:content
     media_content = entry.get("media_content")
@@ -60,14 +132,16 @@ def _extract_image_url(entry: dict, content_html: str | None, category: str | No
             if isinstance(first, dict) and first.get("url"):
                 return first["url"]
 
-    # 3. enclosures (e.g. podcasts or direct image links)
+    # 3. enclosures (direct image attachments)
     enclosures = entry.get("enclosures")
     if enclosures:
         for enclosure in enclosures:
             if isinstance(enclosure, dict):
                 enc_type = enclosure.get("type", "")
                 enc_href = enclosure.get("href", "")
-                if enc_type.startswith("image/") or enc_href.endswith((".png", ".jpg", ".jpeg", ".webp")):
+                if enc_type.startswith("image/") or enc_href.endswith(
+                    (".png", ".jpg", ".jpeg", ".webp", ".gif")
+                ):
                     return enc_href
 
     # 4. Parse embedded <img> tag in HTML content/summary
@@ -79,7 +153,13 @@ def _extract_image_url(entry: dict, content_html: str | None, category: str | No
             if src.startswith("http"):
                 return src
 
-    # 5. Fallback curated category image
+    # 5. Scrape og:image directly from the resolved article webpage
+    if article_url:
+        og_img = _fetch_og_image(article_url)
+        if og_img:
+            return og_img
+
+    # 6. Fallback curated category image
     return FALLBACK_IMAGES.get(category or "default", FALLBACK_IMAGES["default"])
 
 
@@ -98,10 +178,13 @@ def fetch_rss(
 
     for entry in feed.entries[:limit]:
         title = entry.get("title", "").strip()
-        url = entry.get("link", "").strip()
+        raw_url = entry.get("link", "").strip()
 
-        if not title or not url:
+        if not title or not raw_url:
             continue
+
+        # Resolve Google News redirection token to real publisher URL
+        url = _resolve_canonical_url(raw_url)
 
         # Published date
         published_at = None
@@ -127,17 +210,17 @@ def fetch_rss(
         # Clean plain text description
         clean_description = _clean_html_text(raw_summary or raw_content)
 
-        # If description is identical to title (common in Google News RSS), use snippet or default
+        # If description is identical to title (common in Google News RSS), use snippet
         if clean_description and clean_description.lower() == title.lower():
             clean_description = f"Latest update on {title} from {source_name}."
 
-        # Extract image or fallback
-        image_url = _extract_image_url(entry, combined_html, category)
+        # Extract image: media RSS -> embedded img -> OpenGraph -> fallback
+        image_url = _extract_image_url(entry, combined_html, url, category)
 
         # Author extraction
         author = entry.get("author") or entry.get("dc_creator")
 
-        # Stable ID based on URL
+        # Stable ID based on canonical URL
         item_id = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
 
         item = NewsItem(

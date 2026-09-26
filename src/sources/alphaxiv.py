@@ -1,6 +1,7 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from alphaxiv import AlphaXivClient
+
 from models.news import NewsItem
 
 ALPHAXIV_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&auto=format&fit=crop&q=60"
@@ -36,7 +37,7 @@ async def fetch_alphaxiv(
                 description=paper.summary or paper.abstract or None,
                 category=categories_str,
                 image_url=img,
-                collected_at=datetime.now(timezone.utc),
+                collected_at=datetime.now(UTC),
             )
 
             news_items.append(item)

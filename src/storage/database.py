@@ -1,8 +1,8 @@
 """SQLite database storage layer for Project News with deduplication support."""
 
-from datetime import datetime, timezone
-from pathlib import Path
 import sqlite3
+from datetime import UTC, datetime
+from pathlib import Path
 
 from models.news import NewsItem
 
@@ -80,7 +80,7 @@ def save_news_item(item: NewsItem, db_path: Path | str = DEFAULT_DB_PATH) -> boo
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT OR IGNORE INTO news_items (
+            INSERT OR REPLACE INTO news_items (
                 id, title, url, source, source_type,
                 published_at, author, description, category, image_url,
                 is_duplicate, duplicate_of, collected_at
@@ -141,7 +141,7 @@ def save_news_items(
         cursor = conn.cursor()
         cursor.executemany(
             """
-            INSERT OR IGNORE INTO news_items (
+            INSERT OR REPLACE INTO news_items (
                 id, title, url, source, source_type,
                 published_at, author, description, category, image_url,
                 is_duplicate, duplicate_of, collected_at
@@ -163,7 +163,7 @@ def _row_to_news_item(row: sqlite3.Row) -> NewsItem:
     collected_at = (
         datetime.fromisoformat(row["collected_at"])
         if row["collected_at"]
-        else datetime.now(timezone.utc)
+        else datetime.now(UTC)
     )
 
     return NewsItem(

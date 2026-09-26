@@ -1,8 +1,10 @@
-from datetime import datetime, timezone
-from bs4 import BeautifulSoup
+from datetime import UTC, datetime
+
 import httpx
+from bs4 import BeautifulSoup
 
 from models.news import NewsItem
+from sources.rss import _fetch_og_image
 
 BASE_URL = "https://hacker-news.firebaseio.com/v0"
 HN_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=60"
@@ -26,15 +28,15 @@ def fetch_hacker_news(limit: int = 20) -> list[NewsItem]:
                 if not story or story.get("type") != "story":
                     continue
 
-                url = story.get("url")
-                if not url:
-                    url = f"https://news.ycombinator.com/item?id={story_id}"
+                raw_url = story.get("url")
+                is_external = bool(raw_url and not raw_url.startswith("https://news.ycombinator.com"))
+                url = raw_url if raw_url else f"https://news.ycombinator.com/item?id={story_id}"
 
                 published_at = None
                 if story.get("time"):
                     published_at = datetime.fromtimestamp(
                         story["time"],
-                        tz=timezone.utc,
+                        tz=UTC,
                     )
 
                 # Clean description from text or points/comments metadata
@@ -47,6 +49,14 @@ def fetch_hacker_news(limit: int = 20) -> list[NewsItem]:
                     comments = story.get("descendants", 0)
                     description = f"Hacker News community discussion with {points} points and {comments} comments."
 
+                # Attempt to extract OpenGraph primary image from external link
+                image_url = None
+                if is_external:
+                    image_url = _fetch_og_image(url)
+
+                if not image_url:
+                    image_url = HN_FALLBACK_IMAGE
+
                 item = NewsItem(
                     id=f"hn_{story_id}",
                     title=story.get("title", ""),
@@ -57,8 +67,8 @@ def fetch_hacker_news(limit: int = 20) -> list[NewsItem]:
                     author=story.get("by"),
                     description=description,
                     category="tech_community",
-                    image_url=HN_FALLBACK_IMAGE,
-                    collected_at=datetime.now(timezone.utc),
+                    image_url=image_url,
+                    collected_at=datetime.now(UTC),
                 )
 
                 news_items.append(item)

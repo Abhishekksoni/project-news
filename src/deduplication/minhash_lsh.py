@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from datasketch import MinHash, MinHashLSH
+
 from models.news import NewsItem
 
 

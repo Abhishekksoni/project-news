@@ -6,7 +6,6 @@ from sources.alphaxiv import fetch_alphaxiv
 from sources.hackernews import fetch_hacker_news
 from sources.rss import fetch_rss
 from storage.database import (
-    get_duplicates,
     get_news_items,
     get_total_count,
     init_db,
