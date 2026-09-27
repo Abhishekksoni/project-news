@@ -38,12 +38,18 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
                 image_url TEXT,
                 is_duplicate INTEGER DEFAULT 0,
                 duplicate_of TEXT,
+                primary_role TEXT,
+                confidence REAL DEFAULT 0.0,
+                researcher_score REAL DEFAULT 0.0,
+                engineer_score REAL DEFAULT 0.0,
+                startup_score REAL DEFAULT 0.0,
+                irrelevant_score REAL DEFAULT 0.0,
                 collected_at TEXT NOT NULL
             )
             """
         )
 
-        # Migration helper in case table existed without duplicate columns
+        # Migration helpers
         cursor.execute("PRAGMA table_info(news_items)")
         columns = {row["name"] for row in cursor.fetchall()}
         if "is_duplicate" not in columns:
@@ -54,6 +60,30 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
             cursor.execute(
                 "ALTER TABLE news_items ADD COLUMN duplicate_of TEXT"
             )
+        if "primary_role" not in columns:
+            cursor.execute(
+                "ALTER TABLE news_items ADD COLUMN primary_role TEXT"
+            )
+        if "confidence" not in columns:
+            cursor.execute(
+                "ALTER TABLE news_items ADD COLUMN confidence REAL DEFAULT 0.0"
+            )
+        if "researcher_score" not in columns:
+            cursor.execute(
+                "ALTER TABLE news_items ADD COLUMN researcher_score REAL DEFAULT 0.0"
+            )
+        if "engineer_score" not in columns:
+            cursor.execute(
+                "ALTER TABLE news_items ADD COLUMN engineer_score REAL DEFAULT 0.0"
+            )
+        if "startup_score" not in columns:
+            cursor.execute(
+                "ALTER TABLE news_items ADD COLUMN startup_score REAL DEFAULT 0.0"
+            )
+        if "irrelevant_score" not in columns:
+            cursor.execute(
+                "ALTER TABLE news_items ADD COLUMN irrelevant_score REAL DEFAULT 0.0"
+            )
 
         # Indexes for fast querying
         cursor.execute(
@@ -61,6 +91,9 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_category ON news_items (category)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_primary_role ON news_items (primary_role)"
         )
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_published_at ON news_items (published_at DESC)"
@@ -83,8 +116,9 @@ def save_news_item(item: NewsItem, db_path: Path | str = DEFAULT_DB_PATH) -> boo
             INSERT OR REPLACE INTO news_items (
                 id, title, url, source, source_type,
                 published_at, author, description, category, image_url,
-                is_duplicate, duplicate_of, collected_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                is_duplicate, duplicate_of, primary_role, confidence,
+                researcher_score, engineer_score, startup_score, irrelevant_score, collected_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.id,
@@ -99,6 +133,12 @@ def save_news_item(item: NewsItem, db_path: Path | str = DEFAULT_DB_PATH) -> boo
                 item.image_url,
                 1 if item.is_duplicate else 0,
                 item.duplicate_of,
+                item.primary_role,
+                item.confidence,
+                item.researcher_score,
+                item.engineer_score,
+                item.startup_score,
+                item.irrelevant_score,
                 item.collected_at.isoformat(),
             ),
         )
@@ -110,7 +150,7 @@ def save_news_items(
     items: list[NewsItem], db_path: Path | str = DEFAULT_DB_PATH
 ) -> int:
     """
-    Save a batch of NewsItems using INSERT OR IGNORE.
+    Save a batch of NewsItems using INSERT OR REPLACE.
     Returns the number of newly inserted items.
     """
     if not items:
@@ -132,6 +172,12 @@ def save_news_items(
             item.image_url,
             1 if item.is_duplicate else 0,
             item.duplicate_of,
+            item.primary_role,
+            item.confidence,
+            item.researcher_score,
+            item.engineer_score,
+            item.startup_score,
+            item.irrelevant_score,
             item.collected_at.isoformat(),
         )
         for item in items
@@ -144,8 +190,9 @@ def save_news_items(
             INSERT OR REPLACE INTO news_items (
                 id, title, url, source, source_type,
                 published_at, author, description, category, image_url,
-                is_duplicate, duplicate_of, collected_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                is_duplicate, duplicate_of, primary_role, confidence,
+                researcher_score, engineer_score, startup_score, irrelevant_score, collected_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             records,
         )
@@ -166,6 +213,8 @@ def _row_to_news_item(row: sqlite3.Row) -> NewsItem:
         else datetime.now(UTC)
     )
 
+    columns = row.keys()
+
     return NewsItem(
         id=row["id"],
         title=row["title"],
@@ -177,8 +226,14 @@ def _row_to_news_item(row: sqlite3.Row) -> NewsItem:
         description=row["description"],
         category=row["category"],
         image_url=row["image_url"],
-        is_duplicate=bool(row["is_duplicate"]) if "is_duplicate" in row.keys() else False,
-        duplicate_of=row["duplicate_of"] if "duplicate_of" in row.keys() else None,
+        is_duplicate=bool(row["is_duplicate"]) if "is_duplicate" in columns else False,
+        duplicate_of=row["duplicate_of"] if "duplicate_of" in columns else None,
+        primary_role=row["primary_role"] if "primary_role" in columns else None,
+        confidence=float(row["confidence"]) if "confidence" in columns and row["confidence"] is not None else 0.0,
+        researcher_score=float(row["researcher_score"]) if "researcher_score" in columns and row["researcher_score"] is not None else 0.0,
+        engineer_score=float(row["engineer_score"]) if "engineer_score" in columns and row["engineer_score"] is not None else 0.0,
+        startup_score=float(row["startup_score"]) if "startup_score" in columns and row["startup_score"] is not None else 0.0,
+        irrelevant_score=float(row["irrelevant_score"]) if "irrelevant_score" in columns and row["irrelevant_score"] is not None else 0.0,
         collected_at=collected_at,
     )
 

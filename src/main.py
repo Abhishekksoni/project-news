@@ -3,7 +3,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from deduplication.minhash_lsh import NewsDeduplicator
 from sources.alphaxiv import fetch_alphaxiv
+from sources.github_trending import fetch_github_trending
 from sources.hackernews import fetch_hacker_news
+from sources.huggingface import fetch_hf_daily_papers, fetch_hf_trending_models
 from sources.rss import fetch_rss
 from storage.database import (
     get_news_items,
@@ -11,6 +13,18 @@ from storage.database import (
     init_db,
     save_news_items,
 )
+import sys
+from pathlib import Path
+
+# Add project root to sys.path so root modules like export_report are accessible
+project_root = str(Path(__file__).resolve().parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+try:
+    from export_report import generate_html_report
+except ImportError:
+    generate_html_report = None
 
 FEEDS = [
     # 1. Core AI / ML Research & Lab Blogs
@@ -45,21 +59,33 @@ FEEDS = [
         "category": "machine_learning",
     },
 
-    # 2. Industry Blogs, Substack & Medium
+    # 2. TechCrunch & VentureBeat (AI, Startups, VC & Deals)
+    {
+        "name": "TechCrunch AI",
+        "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+        "category": "startup_innovation",
+    },
+    {
+        "name": "TechCrunch Startups",
+        "url": "https://techcrunch.com/category/startups/feed/",
+        "category": "startup_innovation",
+    },
+    {
+        "name": "VentureBeat AI & Tech",
+        "url": "https://venturebeat.com/feed/",
+        "category": "startup_innovation",
+    },
+
+    # 3. Top AI Engineering Blogs & Substacks
     {
         "name": "Simon Willison Weblog",
         "url": "https://simonwillison.net/atom/entries/",
-        "category": "tech_blogs",
+        "category": "ai_engineering",
     },
     {
-        "name": "Towards Data Science (Medium)",
-        "url": "https://towardsdatascience.com/feed",
-        "category": "data_science",
-    },
-    {
-        "name": "The Sequence (Substack)",
-        "url": "https://thesequence.substack.com/feed",
-        "category": "ai_research",
+        "name": "Chip Huyen AI Blog",
+        "url": "https://huyenchip.com/feed.xml",
+        "category": "ai_engineering",
     },
     {
         "name": "Latent Space (Substack)",
@@ -67,12 +93,17 @@ FEEDS = [
         "category": "ai_engineering",
     },
     {
-        "name": "One Useful Thing (Substack)",
-        "url": "https://www.oneusefulthing.org/feed",
-        "category": "ai_insights",
+        "name": "Ahead of AI (Sebastian Raschka)",
+        "url": "https://magazine.sebastianraschka.com/feed",
+        "category": "ai_research",
+    },
+    {
+        "name": "Towards Data Science (Medium)",
+        "url": "https://towardsdatascience.com/feed",
+        "category": "data_science",
     },
 
-    # 3. IITs & Indian DeepTech / Startup Innovation Feeds
+    # 4. IITs & Indian DeepTech / Startup Innovation Feeds
     {
         "name": "IIT Innovations & Startups",
         "url": "https://news.google.com/rss/search?q=IIT+(startup+OR+innovation+OR+research+OR+invention)&hl=en-IN&gl=IN&ceid=IN:en",
@@ -91,9 +122,9 @@ FEEDS = [
 ]
 
 
-def fetch_all_rss(limit_per_feed: int = 5):
+def fetch_all_rss(limit_per_feed: int = 6):
     all_items = []
-    with ThreadPoolExecutor(max_workers=12) as executor:
+    with ThreadPoolExecutor(max_workers=14) as executor:
         futures = [
             executor.submit(
                 fetch_rss,
@@ -114,19 +145,34 @@ def fetch_all_rss(limit_per_feed: int = 5):
 
 
 async def collect_all_sources() -> list:
-    print(f"1. Fetching {len(FEEDS)} RSS feeds, AlphaXiv, and Hacker News...")
+    print(f"1. Fetching {len(FEEDS)} RSS feeds, HF Daily Papers, HF Models, GitHub Trending, AlphaXiv & Hacker News...")
 
-    # Fetch concurrently
-    rss_task = asyncio.to_thread(fetch_all_rss, limit_per_feed=5)
-    alphaxiv_task = fetch_alphaxiv(sort="Hot", interval="3 Days", limit=5)
-    hn_task = asyncio.to_thread(fetch_hacker_news, limit=10)
+    # Fetch all sources concurrently
+    rss_task = asyncio.to_thread(fetch_all_rss, limit_per_feed=6)
+    hf_papers_task = fetch_hf_daily_papers(limit=8)
+    hf_models_task = fetch_hf_trending_models(limit=8)
+    gh_task = asyncio.to_thread(fetch_github_trending, limit=10)
+    alphaxiv_task = fetch_alphaxiv(sort="Hot", interval="3 Days", limit=6)
+    hn_task = asyncio.to_thread(fetch_hacker_news, limit=12)
 
-    rss_items, alphaxiv_items, hn_items = await asyncio.gather(
-        rss_task, alphaxiv_task, hn_task
+    (
+        rss_items,
+        hf_papers,
+        hf_models,
+        gh_items,
+        alphaxiv_items,
+        hn_items,
+    ) = await asyncio.gather(
+        rss_task,
+        hf_papers_task,
+        hf_models_task,
+        gh_task,
+        alphaxiv_task,
+        hn_task,
     )
 
-    all_raw_items = rss_items + alphaxiv_items + hn_items
-    print(f"   Collected {len(all_raw_items)} raw items in total.\n")
+    all_raw_items = rss_items + hf_papers + hf_models + gh_items + alphaxiv_items + hn_items
+    print(f"   Collected {len(all_raw_items)} raw items in total across all feeds.\n")
     return all_raw_items
 
 
@@ -144,40 +190,49 @@ def main():
     print(f"   Unique Articles:    {len(uniques)}")
     print(f"   Duplicate Articles: {len(duplicates)}\n")
 
-    # Step 3: Save to SQLite
-    print("3. Persisting articles into SQLite database...")
+    # Step 3: Fast 4-Role Decision Classification (Rune 26B-A4B)
+    print("3. Scoring articles across 4 roles (Researcher, Engineer, Startup, Irrelevant)...")
+    from classification.rune_client import classify_with_rune
+
+    def _score_item(item):
+        if not item.is_duplicate:
+            res = classify_with_rune(item.title, item.description or "", item.source)
+            item.primary_role = res.primary_role
+            item.confidence = res.confidence
+            item.researcher_score = res.researcher_score
+            item.engineer_score = res.engineer_score
+            item.startup_score = res.startup_score
+            item.irrelevant_score = res.irrelevant_score
+        return item
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        raw_items = list(executor.map(_score_item, raw_items))
+
+    # Step 4: Save to SQLite
+    print("4. Persisting articles into SQLite database...")
     save_news_items(raw_items)
     stats = get_total_count()
     print(
         f"   Database Status -> Total: {stats['total']} | Unique: {stats['unique']} | Duplicates: {stats['duplicates']}\n"
     )
 
-    # Step 4: Show Sample Duplicates Detected
-    if duplicates:
-        print("=" * 70)
-        print("SAMPLE DUPLICATES DETECTED:")
-        print("=" * 70)
-        for i, dup in enumerate(duplicates[:5], start=1):
-            parent = next((u for u in uniques if u.id == dup.duplicate_of), None)
-            print(f"{i}. Duplicate: [{dup.source}] {dup.title}")
-            print(
-                f"   Matched To: [{parent.source if parent else 'Stored Item'}] {parent.title if parent else dup.duplicate_of}"
-            )
-            print()
+    # Step 5: Regenerate HTML Report
+    if generate_html_report:
+        print("5. Generating interactive HTML quality dashboard (report.html)...")
+        report_path = generate_html_report("report.html")
+        print(f"   Interactive Dashboard ready at: {report_path}\n")
 
-    # Step 5: Show Latest Stream Summary
-    unique_db_items = get_news_items(limit=15, only_unique=True)
+    # Step 6: Show Latest Stream Summary
+    unique_db_items = get_news_items(limit=10, only_unique=True)
     print("=" * 70)
     print(f"LATEST UNIQUE NEWS STREAM ({len(unique_db_items)} displayed)")
     print("=" * 70)
     for i, item in enumerate(unique_db_items, start=1):
         print(f"\n{i}. [{item.source}] {item.title}")
-        print(f"   Category: {item.category} | Source Type: {item.source_type}")
+        print(f"   Role: {item.primary_role} (Conf: {int(item.confidence * 100)}%) | Category: {item.category}")
         print(f"   URL: {item.url}")
         if item.published_at:
-            print(f"   Date: {item.published_at}")
-        if item.image_url:
-            print(f"   Image: {item.image_url[:80]}...")
+            print(f"   Date: {item.published_at.strftime('%Y-%m-%d %H:%M')}")
         if item.description:
             print(f"   Description: {item.description[:120]}...")
 

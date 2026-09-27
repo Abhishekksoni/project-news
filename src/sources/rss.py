@@ -51,44 +51,52 @@ from urllib.parse import urljoin
 
 @lru_cache(maxsize=1024)
 def _fetch_og_image(article_url: str) -> str | None:
-    """Fetch OpenGraph or Twitter preview image directly from the article webpage."""
+    """Fetch OpenGraph or Twitter preview image directly from the article webpage using social bot headers to bypass Cloudflare/bot-guards."""
     if not article_url or not article_url.startswith("http"):
         return None
 
-    try:
-        with httpx.Client(
-            timeout=5.0,
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-        ) as client:
-            resp = client.get(article_url)
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text[:150000], "html.parser")
-                og = (
-                    soup.find("meta", property="og:image")
-                    or soup.find("meta", attrs={"name": "og:image"})
-                    or soup.find("meta", property="og:image:url")
-                    or soup.find("meta", property="og:image:secure_url")
-                    or soup.find("meta", property="twitter:image")
-                    or soup.find("meta", attrs={"name": "twitter:image"})
-                    or soup.find("meta", attrs={"name": "twitter:image:src"})
-                    or soup.find("link", rel="image_src")
-                )
-                if og:
-                    content = og.get("content") or og.get("href")
-                    if content and content.strip():
-                        img_url = content.strip()
-                        # Resolve relative URLs
-                        if not img_url.startswith("http"):
-                            img_url = urljoin(str(resp.url), img_url)
-                        if img_url.startswith("http"):
-                            return img_url
-    except Exception:
-        pass
+    # Social bots have allowed access across Cloudflare on OpenAI, Substack, Medium
+    user_agents = [
+        "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+        "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    ]
+
+    for ua in user_agents:
+        try:
+            with httpx.Client(
+                timeout=5.0,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": ua,
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            ) as client:
+                resp = client.get(article_url)
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text[:150000], "html.parser")
+                    og = (
+                        soup.find("meta", property="og:image")
+                        or soup.find("meta", attrs={"name": "og:image"})
+                        or soup.find("meta", property="og:image:url")
+                        or soup.find("meta", property="og:image:secure_url")
+                        or soup.find("meta", property="twitter:image")
+                        or soup.find("meta", attrs={"name": "twitter:image"})
+                        or soup.find("meta", attrs={"name": "twitter:image:src"})
+                        or soup.find("link", rel="image_src")
+                    )
+                    if og:
+                        content = og.get("content") or og.get("href")
+                        if content and content.strip():
+                            img_url = content.strip()
+                            if not img_url.startswith("http"):
+                                img_url = urljoin(str(resp.url), img_url)
+                            if img_url.startswith("http"):
+                                return img_url
+        except Exception:
+            continue
+
     return None
 
 
