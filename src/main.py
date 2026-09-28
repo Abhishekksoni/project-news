@@ -54,6 +54,11 @@ FEEDS = [
         "category": "ai_research",
     },
     {
+        "name": "Microsoft Research Blog",
+        "url": "https://www.microsoft.com/en-us/research/blog/feed/",
+        "category": "ai_research",
+    },
+    {
         "name": "KDnuggets",
         "url": "https://www.kdnuggets.com/feed",
         "category": "machine_learning",
@@ -76,7 +81,22 @@ FEEDS = [
         "category": "startup_innovation",
     },
 
-    # 3. Top AI Engineering Blogs & Substacks
+    # 3. Top AI Engineering, Developer & Cloud Feeds
+    {
+        "name": "Claude & Anthropic Updates",
+        "url": "https://news.google.com/rss/search?q=%22Anthropic%22+OR+%22Claude+3.5%22+OR+%22Claude+3.7%22+OR+%22Claude+Code%22+(AI+OR+model+OR+research)&hl=en-US&gl=US&ceid=US:en",
+        "category": "ai_engineering",
+    },
+    {
+        "name": "NVIDIA Developer Blog",
+        "url": "https://developer.nvidia.com/blog/feed",
+        "category": "ai_engineering",
+    },
+    {
+        "name": "AWS Machine Learning Blog",
+        "url": "https://aws.amazon.com/blogs/machine-learning/feed/",
+        "category": "ai_engineering",
+    },
     {
         "name": "Simon Willison Weblog",
         "url": "https://simonwillison.net/atom/entries/",
@@ -97,13 +117,25 @@ FEEDS = [
         "url": "https://magazine.sebastianraschka.com/feed",
         "category": "ai_research",
     },
+
+    # 4. Medium AI / ML Feeds
     {
         "name": "Towards Data Science (Medium)",
         "url": "https://towardsdatascience.com/feed",
         "category": "data_science",
     },
+    {
+        "name": "Medium AI Feed",
+        "url": "https://medium.com/feed/tag/artificial-intelligence",
+        "category": "ai_engineering",
+    },
+    {
+        "name": "Medium ML Feed",
+        "url": "https://medium.com/feed/tag/machine-learning",
+        "category": "machine_learning",
+    },
 
-    # 4. IITs & Indian DeepTech / Startup Innovation Feeds
+    # 5. IITs & DeepTech Research Feeds
     {
         "name": "IIT Innovations & Startups",
         "url": "https://news.google.com/rss/search?q=IIT+(startup+OR+innovation+OR+research+OR+invention)&hl=en-IN&gl=IN&ceid=IN:en",
@@ -114,15 +146,10 @@ FEEDS = [
         "url": "https://news.google.com/rss/search?q=%22IIT+Madras%22+OR+%22IIT+Bombay%22+OR+%22IIT+Delhi%22+OR+%22IIT+Kanpur%22+(research+OR+startup+OR+patent)&hl=en-IN&gl=IN&ceid=IN:en",
         "category": "iit_research",
     },
-    {
-        "name": "YourStory Indian Startups",
-        "url": "https://yourstory.com/feed",
-        "category": "indian_startups",
-    },
 ]
 
 
-def fetch_all_rss(limit_per_feed: int = 6):
+def fetch_all_rss(limit_per_feed: int | None = None):
     all_items = []
     with ThreadPoolExecutor(max_workers=14) as executor:
         futures = [
@@ -132,6 +159,7 @@ def fetch_all_rss(limit_per_feed: int = 6):
                 source_name=f["name"],
                 category=f["category"],
                 limit=limit_per_feed,
+                max_age_days=7,
             )
             for f in FEEDS
         ]
@@ -145,15 +173,15 @@ def fetch_all_rss(limit_per_feed: int = 6):
 
 
 async def collect_all_sources() -> list:
-    print(f"1. Fetching {len(FEEDS)} RSS feeds, HF Daily Papers, HF Models, GitHub Trending, AlphaXiv & Hacker News...")
+    print(f"1. Fetching from {len(FEEDS)} RSS feeds, HF Daily Papers, HF Models, GitHub Trending, AlphaXiv & Hacker News (7-day window with safety ceilings)...")
 
-    # Fetch all sources concurrently
-    rss_task = asyncio.to_thread(fetch_all_rss, limit_per_feed=6)
-    hf_papers_task = fetch_hf_daily_papers(limit=8)
-    hf_models_task = fetch_hf_trending_models(limit=8)
-    gh_task = asyncio.to_thread(fetch_github_trending, limit=10)
-    alphaxiv_task = fetch_alphaxiv(sort="Hot", interval="3 Days", limit=6)
-    hn_task = asyncio.to_thread(fetch_hacker_news, limit=12)
+    # Fetch all sources concurrently with 7-day filter and safety ceilings
+    rss_task = asyncio.to_thread(fetch_all_rss, limit_per_feed=30)
+    hf_papers_task = fetch_hf_daily_papers(limit=25)
+    hf_models_task = fetch_hf_trending_models(limit=25)
+    gh_task = asyncio.to_thread(fetch_github_trending, limit=25)
+    alphaxiv_task = fetch_alphaxiv(sort="Hot", interval="7 Days", limit=30)
+    hn_task = fetch_hacker_news(limit=30)
 
     (
         rss_items,
@@ -190,23 +218,29 @@ def main():
     print(f"   Unique Articles:    {len(uniques)}")
     print(f"   Duplicate Articles: {len(duplicates)}\n")
 
-    # Step 3: Fast 4-Role Decision Classification (Rune 26B-A4B)
-    print("3. Scoring articles across 4 roles (Researcher, Engineer, Startup, Irrelevant)...")
-    from classification.rune_client import classify_with_rune
+    # Step 3: Fast 3-Role Decision Classification (OpenJev Local/Hosted Inference)
+    print("3. Scoring articles across 3 roles using OpenJev model (AI/ML, Startups, Noise)...")
+    from classification.jev_client import classify_with_jev
 
-    def _score_item(item):
+
+    total_to_score = sum(1 for item in raw_items if not item.is_duplicate)
+    scored_count = 0
+    for item in raw_items:
         if not item.is_duplicate:
-            res = classify_with_rune(item.title, item.description or "", item.source)
+            res = classify_with_jev(item.title, item.description or "", item.source)
             item.primary_role = res.primary_role
             item.confidence = res.confidence
+            item.aiml_score = res.aiml_score
+            item.startup_score = res.startup_score
+            item.noise_score = res.noise_score
             item.researcher_score = res.researcher_score
             item.engineer_score = res.engineer_score
-            item.startup_score = res.startup_score
             item.irrelevant_score = res.irrelevant_score
-        return item
+            scored_count += 1
+            if scored_count % 25 == 0 or scored_count == total_to_score:
+                print(f"   Classified {scored_count}/{total_to_score} articles on Metal GPU...")
+    print(f"   Completed classification for all {total_to_score} articles.\n")
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        raw_items = list(executor.map(_score_item, raw_items))
 
     # Step 4: Save to SQLite
     print("4. Persisting articles into SQLite database...")

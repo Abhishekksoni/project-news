@@ -18,12 +18,25 @@ def clean_display_text(text: str) -> str:
     return text
 
 
+def normalize_role_4(role_raw: str | None) -> tuple[str, str]:
+    """Normalize role string to (role_key, role_label) across 4 roles."""
+    r = (role_raw or "ai_engineer").lower().strip()
+    if r in ("ai_researcher", "research", "researcher"):
+        return "ai_researcher", "🔬 AI & ML Research"
+    elif r in ("ai_engineer", "engineer", "engineering", "ai_ml"):
+        return "ai_engineer", "🧑‍💻 AI & Software Engineering"
+    elif r in ("startup_innovations", "startup_innovation", "startup", "startups"):
+        return "startup_innovations", "🚀 Startups & Innovation"
+    else:
+        return "noise", "🗑️ Noise / Irrelevant"
+
+
 def generate_html_report(output_path: str = "report.html") -> str:
     init_db()
-    items = get_news_items(limit=600, only_unique=False)
+    items = get_news_items(limit=None, only_unique=False)
     stats = get_total_count()
 
-    # Separate items into 3 dedicated streams to eliminate clutter
+    # Separate items into 3 dedicated streams
     github_items = [
         item for item in items 
         if item.source_type == "github_repo" or "github trending" in (item.source or "").lower()
@@ -37,21 +50,37 @@ def generate_html_report(output_path: str = "report.html") -> str:
         if item not in github_items and item not in hf_model_items
     ]
 
-    sources = sorted(list({item.source for item in article_items if item.source}))
+    # Calculate 4-role distribution for unique articles
+    researcher_count = 0
+    engineer_count = 0
+    startup_count = 0
+    noise_count = 0
+    unique_articles_count = 0
 
-    # Role counts for editorial news
-    research_count = sum(1 for item in article_items if (item.primary_role or "").lower() == "ai_researcher" and not item.is_duplicate)
-    engineer_count = sum(1 for item in article_items if (item.primary_role or "").lower() == "ai_engineer" and not item.is_duplicate)
-    startup_count = sum(1 for item in article_items if (item.primary_role or "").lower() == "startup_innovation" and not item.is_duplicate)
-    irrelevant_count = sum(1 for item in article_items if (item.primary_role or "").lower() == "irrelevant" and not item.is_duplicate)
-    unique_articles_count = sum(1 for item in article_items if not item.is_duplicate)
+    sources_set = set()
+    for item in article_items:
+        if item.source:
+            sources_set.add(item.source)
+        if not item.is_duplicate:
+            unique_articles_count += 1
+            role_key, _ = normalize_role_4(item.primary_role)
+            if role_key == "ai_researcher":
+                researcher_count += 1
+            elif role_key == "ai_engineer":
+                engineer_count += 1
+            elif role_key == "startup_innovations":
+                startup_count += 1
+            else:
+                noise_count += 1
+
+    sources = sorted(sources_set)
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Project News | Multi-Role Intelligence & Quality Dashboard</title>
+    <title>Project News | 4-Role Intelligence & Quality Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -65,21 +94,22 @@ def generate_html_report(output_path: str = "report.html") -> str:
             --text-muted: #9ca3af;
             --text-dim: #6b7280;
             --accent: #38bdf8;
-            --research-color: #c084fc;
-            --research-bg: rgba(192, 132, 252, 0.12);
-            --research-border: rgba(192, 132, 252, 0.3);
-            --engineer-color: #38bdf8;
-            --engineer-bg: rgba(56, 189, 248, 0.12);
-            --engineer-border: rgba(56, 189, 248, 0.3);
+            --research-color: #38bdf8;
+            --research-bg: rgba(56, 189, 248, 0.12);
+            --research-border: rgba(56, 189, 248, 0.3);
+            --engineer-color: #c084fc;
+            --engineer-bg: rgba(192, 132, 252, 0.12);
+            --engineer-border: rgba(192, 132, 252, 0.3);
             --startup-color: #fb923c;
             --startup-bg: rgba(251, 146, 60, 0.12);
             --startup-border: rgba(251, 146, 60, 0.3);
-            --irrelevant-color: #94a3b8;
-            --irrelevant-bg: rgba(148, 163, 184, 0.12);
-            --irrelevant-border: rgba(148, 163, 184, 0.3);
+            --noise-color: #94a3b8;
+            --noise-bg: rgba(148, 163, 184, 0.12);
+            --noise-border: rgba(148, 163, 184, 0.3);
             --github-color: #58a6ff;
             --hf-color: #fbbf24;
         }}
+
         * {{
             box-sizing: border-box;
             margin: 0;
@@ -194,7 +224,7 @@ def generate_html_report(output_path: str = "report.html") -> str:
             display: block;
         }}
 
-        /* Role Category Tabs */
+        /* 4-Role Category Tabs */
         .role-tabs {{
             display: flex;
             gap: 0.5rem;
@@ -227,23 +257,23 @@ def generate_html_report(output_path: str = "report.html") -> str:
         .role-tab.active {{
             background: #1e293b;
             color: #fff;
-            border-color: #3b82f6;
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+            border-color: #38bdf8;
+            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
         }}
         .role-tab.active.tab-research {{
             border-color: var(--research-color);
-            box-shadow: 0 4px 12px rgba(192, 132, 252, 0.25);
+            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
         }}
         .role-tab.active.tab-engineer {{
             border-color: var(--engineer-color);
-            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.25);
+            box-shadow: 0 4px 12px rgba(192, 132, 252, 0.25);
         }}
         .role-tab.active.tab-startup {{
             border-color: var(--startup-color);
             box-shadow: 0 4px 12px rgba(251, 146, 60, 0.25);
         }}
-        .role-tab.active.tab-irrelevant {{
-            border-color: var(--irrelevant-color);
+        .role-tab.active.tab-noise {{
+            border-color: var(--noise-color);
             box-shadow: 0 4px 12px rgba(148, 163, 184, 0.25);
         }}
         .role-count {{
@@ -288,10 +318,10 @@ def generate_html_report(output_path: str = "report.html") -> str:
             cursor: pointer;
         }}
 
-        /* Grid and Cards */
+        /* Grid & Cards Layout */
         .grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(370px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
             gap: 1.5rem;
         }}
         .card {{
@@ -360,15 +390,15 @@ def generate_html_report(output_path: str = "report.html") -> str:
             color: var(--engineer-color);
             border: 1px solid var(--engineer-border);
         }}
-        .role-pill.startup_innovation {{
+        .role-pill.startup_innovations {{
             background: var(--startup-bg);
             color: var(--startup-color);
             border: 1px solid var(--startup-border);
         }}
-        .role-pill.irrelevant {{
-            background: var(--irrelevant-bg);
-            color: var(--irrelevant-color);
-            border: 1px solid var(--irrelevant-border);
+        .role-pill.noise {{
+            background: var(--noise-bg);
+            color: var(--noise-color);
+            border: 1px solid var(--noise-border);
         }}
         .source-tag {{
             font-size: 0.72rem;
@@ -442,101 +472,100 @@ def generate_html_report(output_path: str = "report.html") -> str:
             display: flex;
             align-items: center;
             gap: 0.3rem;
+            width: 160px;
         }}
         .score-bar-wrap {{
             flex: 1;
             height: 5px;
             background: rgba(255, 255, 255, 0.08);
             border-radius: 3px;
-            margin: 0 0.6rem;
             overflow: hidden;
+            margin: 0 0.6rem;
         }}
         .score-bar-fill {{
             height: 100%;
             border-radius: 3px;
+            transition: width 0.3s ease;
         }}
         .score-num {{
             font-family: 'JetBrains Mono', monospace;
             font-weight: 600;
-            width: 32px;
+            font-size: 0.72rem;
+            width: 34px;
             text-align: right;
         }}
         .card-footer {{
-            border-top: 1px solid rgba(255, 255, 255, 0.05);
-            padding-top: 0.65rem;
-            font-size: 0.74rem;
-            color: var(--text-dim);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            border-top: 1px solid var(--card-border);
+            padding-top: 0.75rem;
+            margin-top: auto;
         }}
 
-        /* GitHub Repo & HF Model Specific Cards */
+        /* Tool Cards (GitHub Repos & HF Models) */
         .tool-card {{
-            background: #0f172a;
-            border: 1px solid #1e293b;
-            border-radius: 14px;
-            padding: 1.4rem;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1.25rem;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            transition: all 0.2s ease;
+            transition: transform 0.2s ease, border-color 0.2s ease;
         }}
         .tool-card:hover {{
-            border-color: #38bdf8;
-            transform: translateY(-3px);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            transform: translateY(-2px);
+            border-color: var(--card-hover-border);
         }}
         .tool-header {{
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             margin-bottom: 0.75rem;
-            gap: 0.5rem;
+        }}
+        .tool-badge {{
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.5rem;
+            border-radius: 6px;
+        }}
+        .tool-badge.gh {{
+            background: rgba(88, 166, 255, 0.12);
+            color: var(--github-color);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+        }}
+        .tool-badge.hf {{
+            background: rgba(251, 191, 36, 0.12);
+            color: var(--hf-color);
+            border: 1px solid rgba(251, 191, 36, 0.3);
         }}
         .tool-title {{
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             font-weight: 700;
-            color: #f8fafc;
+            color: var(--text-main);
             text-decoration: none;
-            word-break: break-word;
-            font-family: 'JetBrains Mono', monospace;
+            word-break: break-all;
         }}
         .tool-title:hover {{
             color: var(--accent);
         }}
-        .tool-badge {{
-            font-size: 0.72rem;
-            font-weight: 700;
-            padding: 0.2rem 0.6rem;
-            border-radius: 6px;
-            white-space: nowrap;
-        }}
-        .tool-badge.gh {{
-            background: rgba(88, 166, 255, 0.15);
-            color: #58a6ff;
-            border: 1px solid rgba(88, 166, 255, 0.3);
-        }}
-        .tool-badge.hf {{
-            background: rgba(251, 191, 36, 0.15);
-            color: #fbbf24;
-            border: 1px solid rgba(251, 191, 36, 0.3);
-        }}
         .tool-desc {{
-            font-size: 0.88rem;
+            font-size: 0.85rem;
             color: var(--text-muted);
-            margin-bottom: 1.25rem;
-            line-height: 1.5;
-            flex-grow: 1;
+            margin: 0.6rem 0 1rem 0;
+            line-height: 1.45;
         }}
         .tool-meta {{
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-top: 1px solid rgba(255, 255, 255, 0.06);
-            padding-top: 0.85rem;
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             color: var(--text-dim);
+            border-top: 1px solid var(--card-border);
+            padding-top: 0.75rem;
         }}
         .tool-btn {{
             display: inline-flex;
@@ -570,7 +599,7 @@ def generate_html_report(output_path: str = "report.html") -> str:
                     <div class="stat-badge">Duplicates: <span class="stat-value" style="color:#f87171;">{stats['duplicates']}</span></div>
                 </div>
             </div>
-            <p>Intelligence platform for research, practical AI engineering, and tech startup innovation.</p>
+            <p>Intelligence platform powered by local OpenJev neural cross-encoder across 4 specialized roles.</p>
         </div>
 
         <!-- Section Navigation Switcher -->
@@ -594,16 +623,16 @@ def generate_html_report(output_path: str = "report.html") -> str:
                     🌐 All Stories <span class="role-count">{unique_articles_count}</span>
                 </button>
                 <button class="role-tab tab-research" data-filter="ai_researcher" onclick="selectRoleTab('ai_researcher', this)">
-                    🔬 AI & ML Research <span class="role-count">{research_count}</span>
+                    🔬 AI & ML Research <span class="role-count">{researcher_count}</span>
                 </button>
                 <button class="role-tab tab-engineer" data-filter="ai_engineer" onclick="selectRoleTab('ai_engineer', this)">
                     🧑‍💻 AI & Software Engineering <span class="role-count">{engineer_count}</span>
                 </button>
-                <button class="role-tab tab-startup" data-filter="startup_innovation" onclick="selectRoleTab('startup_innovation', this)">
+                <button class="role-tab tab-startup" data-filter="startup_innovations" onclick="selectRoleTab('startup_innovations', this)">
                     🚀 Startups & Innovation <span class="role-count">{startup_count}</span>
                 </button>
-                <button class="role-tab tab-irrelevant" data-filter="irrelevant" onclick="selectRoleTab('irrelevant', this)">
-                    🗑️ Irrelevant / Noise <span class="role-count">{irrelevant_count}</span>
+                <button class="role-tab tab-noise" data-filter="noise" onclick="selectRoleTab('noise', this)">
+                    🗑️ Noise <span class="role-count">{noise_count}</span>
                 </button>
             </div>
 
@@ -635,70 +664,70 @@ def generate_html_report(output_path: str = "report.html") -> str:
         date_str = item.published_at.strftime("%b %d, %Y") if item.published_at else "Recent"
         is_dup = "true" if item.is_duplicate else "false"
 
-        role = item.primary_role or "ai_engineer"
-        role_label = {
-            "ai_researcher": "🔬 AI / ML Research",
-            "ai_engineer": "🧑‍💻 AI Engineering",
-            "startup_innovation": "🚀 Startup & Innovation",
-            "irrelevant": "🗑️ Irrelevant / Noise",
-        }.get(role, "🧑‍💻 AI Engineering")
+        role_key, role_label = normalize_role_4(item.primary_role)
 
-        # Percentages
-        r_pct = int(item.researcher_score * 100) if item.researcher_score else 0
-        e_pct = int(item.engineer_score * 100) if item.engineer_score else 0
-        s_pct = int(item.startup_score * 100) if item.startup_score else 0
-        i_pct = int(item.irrelevant_score * 100) if item.irrelevant_score else 0
-        conf_pct = int(item.confidence * 100) if item.confidence else max(r_pct, e_pct, s_pct, i_pct)
+        res_score = getattr(item, 'researcher_score', 0.0) or 0.0
+        eng_score = getattr(item, 'engineer_score', 0.0) or 0.0
+        startup_score = getattr(item, 'startup_score', 0.0) or 0.0
+        noise_score = (getattr(item, 'noise_score', 0.0) or 0.0)
+        if noise_score == 0.0 and getattr(item, 'irrelevant_score', 0.0):
+            noise_score = getattr(item, 'irrelevant_score', 0.0)
+
+        r_pct = int(res_score * 100)
+        e_pct = int(eng_score * 100)
+        s_pct = int(startup_score * 100)
+        n_pct = int(noise_score * 100)
+        conf_pct = int(item.confidence * 100) if item.confidence else max(r_pct, e_pct, s_pct, n_pct)
 
         img_tag = f'<img src="{html.escape(item.image_url)}" class="card-img" alt="Banner" onerror="this.style.display=\'none\'">' if item.image_url else ''
 
         html_content += f"""
-            <div class="card" data-role="{role}" data-source="{source_esc.lower()}" data-duplicate="{is_dup}" data-text="{title_esc.lower()} {desc_esc.lower()} {source_esc.lower()} {author_esc.lower()}">
+            <div class="card" data-role="{role_key}" data-source="{source_esc.lower()}" data-duplicate="{is_dup}" data-text="{title_esc.lower()} {desc_esc.lower()} {source_esc.lower()} {author_esc.lower()}">
                 <div class="card-img-wrap">
                     {img_tag}
                 </div>
                 <div class="card-body">
                     <div class="card-top">
-                        <span class="role-pill {role}">{role_label}</span>
+                        <span class="role-pill {role_key}">{role_label}</span>
                         <span class="source-tag" title="{source_esc}">{source_esc}</span>
                     </div>
 
                     <a href="{url_esc}" target="_blank" class="card-title" title="{title_esc}">{title_esc}</a>
                     <p class="card-desc">{desc_esc}</p>
 
-                    <!-- 4 Role Decision Numbers -->
+                    <!-- 4-Role Decision Scores -->
                     <div class="scores-panel">
                         <div class="scores-title">
                             <span>Role Probabilities</span>
                             <span>Conf: {conf_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🔬 Research</span>
+                            <span class="score-label">🔬 AI Research</span>
                             <div class="score-bar-wrap">
                                 <div class="score-bar-fill" style="width: {r_pct}%; background: var(--research-color);"></div>
                             </div>
                             <span class="score-num" style="color: var(--research-color);">{r_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🧑‍💻 Engineer</span>
+                            <span class="score-label">🧑‍💻 AI Engineering</span>
                             <div class="score-bar-wrap">
                                 <div class="score-bar-fill" style="width: {e_pct}%; background: var(--engineer-color);"></div>
                             </div>
                             <span class="score-num" style="color: var(--engineer-color);">{e_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🚀 Startup</span>
+                            <span class="score-label">🚀 Startups</span>
                             <div class="score-bar-wrap">
                                 <div class="score-bar-fill" style="width: {s_pct}%; background: var(--startup-color);"></div>
                             </div>
                             <span class="score-num" style="color: var(--startup-color);">{s_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🗑️ Noise / Irr</span>
+                            <span class="score-label">🗑️ Noise</span>
                             <div class="score-bar-wrap">
-                                <div class="score-bar-fill" style="width: {i_pct}%; background: var(--irrelevant-color);"></div>
+                                <div class="score-bar-fill" style="width: {n_pct}%; background: var(--noise-color);"></div>
                             </div>
-                            <span class="score-num" style="color: var(--irrelevant-color);">{i_pct}%</span>
+                            <span class="score-num" style="color: var(--noise-color);">{n_pct}%</span>
                         </div>
                     </div>
 

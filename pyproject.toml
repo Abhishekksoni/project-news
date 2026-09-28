@@ -5,16 +5,25 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "accelerate>=1.15.0",
     "alphaxiv-py>=0.7.0",
     "beautifulsoup4>=4.15.0",
+    "datasets>=5.0.1",
     "datasketch>=2.0.0",
+    "evaluate>=0.4.6",
     "fastapi>=0.141.1",
     "feedparser>=6.0.14",
     "googlenewsdecoder>=0.2.1",
     "httpx>=0.28.1",
+    "peft>=0.21.0",
     "pydantic-settings>=2.15.0",
     "python-dateutil>=2.9.0.post0",
     "python-dotenv>=1.2.3",
+    "scikit-learn>=1.9.1",
+    "sentencepiece>=0.2.2",
+    "tiktoken>=0.14.0",
+    "torch>=2.14.0",
+    "transformers>=5.17.0",
     "uvicorn[standard]>=0.54.0",
 ]
 

@@ -7,12 +7,12 @@ import httpx
 
 from models.news import NewsItem
 
-GITHUB_TRENDING_URL = "https://github.com/trending/python?since=daily"
+GITHUB_TRENDING_URL = "https://github.com/trending/python?since=weekly"
 FALLBACK_GITHUB_IMAGE = "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&auto=format&fit=crop&q=60"
 
 
-def fetch_github_trending(limit: int = 15) -> list[NewsItem]:
-    """Fetch daily trending Python and AI repositories from GitHub Trending."""
+def fetch_github_trending(limit: int | None = None) -> list[NewsItem]:
+    """Fetch weekly (7 days) trending Python and AI repositories from GitHub Trending."""
     news_items = []
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -31,7 +31,8 @@ def fetch_github_trending(limit: int = 15) -> list[NewsItem]:
             if not rows:
                 rows = soup.select(".Box-row")
 
-            for row in rows[:limit]:
+            target_rows = rows if limit is None else rows[:limit]
+            for row in target_rows:
                 # Title and repo URL
                 title_elem = row.find("h2") or row.find("h1")
                 if not title_elem:

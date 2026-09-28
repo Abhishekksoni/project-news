@@ -10,7 +10,7 @@ ALPHAXIV_FALLBACK_IMAGE = "https://images.unsplash.com/photo-1620712943543-bcc46
 async def fetch_alphaxiv(
     sort: str = "Hot",
     interval: str = "7 Days",
-    limit: int = 10,
+    limit: int = 30,
 ) -> list[NewsItem]:
     news_items = []
 

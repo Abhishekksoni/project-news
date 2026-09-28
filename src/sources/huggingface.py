@@ -11,7 +11,7 @@ import httpx
 from models.news import NewsItem
 
 HF_PAPERS_API = "https://huggingface.co/api/daily_papers"
-HF_TRENDING_MODELS_API = "https://huggingface.co/api/models?sort=trendingScore&direction=-1&limit=10"
+HF_TRENDING_MODELS_API = "https://huggingface.co/api/models?sort=trendingScore&direction=-1&limit=25"
 FALLBACK_HF_IMAGE = "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=800&auto=format&fit=crop&q=60"
 
 
@@ -78,8 +78,8 @@ async def _fetch_single_model_description(client: httpx.AsyncClient, model_id: s
     return None
 
 
-async def fetch_hf_daily_papers(limit: int = 10) -> list[NewsItem]:
-    """Fetch top daily research papers curated on Hugging Face."""
+async def fetch_hf_daily_papers(limit: int | None = None) -> list[NewsItem]:
+    """Fetch top daily research papers curated on Hugging Face within 7 days."""
     news_items = []
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -87,8 +87,9 @@ async def fetch_hf_daily_papers(limit: int = 10) -> list[NewsItem]:
             if resp.status_code != 200:
                 return []
             data = resp.json()
+            items_to_process = data if limit is None else data[:limit]
 
-            for item in data[:limit]:
+            for item in items_to_process:
                 paper = item.get("paper", {})
                 title = paper.get("title", "").strip()
                 summary = paper.get("summary", "").strip()
@@ -108,6 +109,9 @@ async def fetch_hf_daily_papers(limit: int = 10) -> list[NewsItem]:
                 if pub_date_str:
                     try:
                         published_at = datetime.fromisoformat(pub_date_str.replace("Z", "+00:00"))
+                        age_seconds = (datetime.now(timezone.utc) - published_at).total_seconds()
+                        if age_seconds > 7 * 86400:
+                            continue
                     except Exception:
                         pass
 
@@ -138,7 +142,7 @@ async def fetch_hf_daily_papers(limit: int = 10) -> list[NewsItem]:
     return news_items
 
 
-async def fetch_hf_trending_models(limit: int = 10) -> list[NewsItem]:
+async def fetch_hf_trending_models(limit: int | None = None) -> list[NewsItem]:
     """Fetch top trending AI open-weights models and checkpoints with real descriptions."""
     news_items = []
     try:
@@ -148,7 +152,7 @@ async def fetch_hf_trending_models(limit: int = 10) -> list[NewsItem]:
                 return []
             models_data = resp.json()
 
-            selected_models = models_data[:limit]
+            selected_models = models_data if limit is None else models_data[:limit]
 
             # Fetch READMEs in parallel
             tasks = [

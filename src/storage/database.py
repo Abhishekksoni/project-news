@@ -239,7 +239,7 @@ def _row_to_news_item(row: sqlite3.Row) -> NewsItem:
 
 
 def get_news_items(
-    limit: int = 50,
+    limit: int | None = None,
     offset: int = 0,
     source: str | None = None,
     category: str | None = None,
@@ -248,7 +248,7 @@ def get_news_items(
 ) -> list[NewsItem]:
     """
     Retrieve news items with optional filtering by source, category, and deduplication status.
-    If only_unique=True, duplicates are filtered out.
+    If only_unique=True, duplicates are filtered out. If limit is None, all matching items are returned.
     """
     init_db(db_path)
 
@@ -271,8 +271,10 @@ def get_news_items(
         query += " WHERE " + " AND ".join(conditions)
 
     # Order by published_at (newest first), falling back to collected_at
-    query += " ORDER BY COALESCE(published_at, collected_at) DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+    query += " ORDER BY COALESCE(published_at, collected_at) DESC"
+    if limit is not None:
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()

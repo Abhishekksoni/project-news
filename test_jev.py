@@ -1,39 +1,41 @@
-"""Test script for Jev AI classification across the 3 target user roles."""
+"""Test script for OpenJev (AlexWortega/openjev) classification across 4 target roles."""
 
 import json
 import sqlite3
-from classification.jev_client import build_jev_request, classify_with_jev
+from classification.jev_client import (
+    OPENJEV_MODEL,
+    build_openjev_systemone_payload,
+    classify_with_jev,
+)
 
 
 def test_jev_on_sample_news():
-    conn = sqlite3.connect("news.db")
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-
-    # Grab representative samples across research, engineering, and startups
-    samples = []
-    
-    # 1. Research sample (AlphaXiv or BAIR)
-    row = c.execute("SELECT * FROM news_items WHERE source LIKE '%AlphaXiv%' OR source LIKE '%BAIR%' LIMIT 1").fetchone()
-    if row:
-        samples.append(dict(row))
-
-    # 2. Engineering / Tooling sample (Hacker News or Hugging Face)
-    row = c.execute("SELECT * FROM news_items WHERE (source LIKE '%Hacker News%' OR source LIKE '%Hugging Face%') AND title LIKE '%wrapper%' OR title LIKE '%LLM%' LIMIT 1").fetchone()
-    if row:
-        samples.append(dict(row))
-    else:
-        row = c.execute("SELECT * FROM news_items WHERE source LIKE '%Hacker News%' LIMIT 1").fetchone()
-        if row:
-            samples.append(dict(row))
-
-    # 3. Startup & Innovation sample (IIT or YourStory)
-    row = c.execute("SELECT * FROM news_items WHERE source LIKE '%IIT%' OR source LIKE '%YourStory%' LIMIT 1").fetchone()
-    if row:
-        samples.append(dict(row))
+    # 4 distinct test samples
+    samples = [
+        {
+            "title": "Scaling Law for Latent Reasoning in Large Multimodal Models",
+            "description": "We establish mathematical bounds and compute loss curves for multimodal chain-of-thought token generation.",
+            "source": "AlphaXiv / arXiv Research",
+        },
+        {
+            "title": "vLLM 0.6.0: PagedAttention Engine with Distributed CUDA Kernels and Fast Python Bindings",
+            "description": "New release features memory-efficient KV cache paging, OpenAI-compatible HTTP API server, and dockerized deployment.",
+            "source": "GitHub Trending / Engineering",
+        },
+        {
+            "title": "Agentic AI startup Cognition raises $175M Series B at $2B valuation led by Founders Fund",
+            "description": "The creator of Devin announces institutional funding round to scale commercial go-to-market enterprise sales.",
+            "source": "TechCrunch Startups & Venture",
+        },
+        {
+            "title": "The 10 Best Ergonomic Standing Desks and Espresso Machines for Your Home Office (2026)",
+            "description": "Our editors tested over 25 adjustable wooden desks and coffee grinders to find the best daily comfort gear.",
+            "source": "Lifestyle & Consumer Review",
+        },
+    ]
 
     print("=" * 80)
-    print(" JEV AI (SYSTEM ONE) - 3-ROLE CLASSIFICATION & SCORE TEST")
+    print(f" OPENJEV ({OPENJEV_MODEL}) - 4-ROLE ZERO-SHOT CLASSIFICATION BENCHMARK")
     print("=" * 80)
 
     for i, item in enumerate(samples, 1):
@@ -45,22 +47,17 @@ def test_jev_on_sample_news():
         print(f"    Source: {source}")
         print(f"    Snippet: {description[:110]}...")
 
-        # 1. Show Candidate Role Targets
-        payload = build_jev_request(title, description, source)
-        print("\n    📝 Candidate Roles Evaluated:")
-        print(f"       Targets: {payload['parameters']['candidate_labels']}")
-
-        # 2. Run Classification
+        # Run Classification
         result = classify_with_jev(title, description, source)
 
-        print("\n    🎯 JEV DECISION & PROBABILITIES:")
-        print(f"       Mode: {'🟢 Live API' if result.is_live_api else '🟡 Local Test Mode'}")
+        print("\n    🎯 OPENJEV 4-ROLE DECISION:")
         print(f"       Primary Role:        👉 {result.primary_role.upper()} (Confidence: {result.confidence * 100:.1f}%)")
         print("       Role Probabilities: ", json.dumps(result.role_probabilities))
-        print("       Individual Scores (0.0 - 1.0):")
-        print(f"         1. 🔬 AI / ML Researcher:       {result.researcher_score:.2f}")
-        print(f"         2. 🧑‍💻 AI Engineer / Developer:  {result.engineer_score:.2f}")
-        print(f"         3. 🚀 Startup & Innovation:     {result.startup_score:.2f}")
+        print("       Scores Breakdown:")
+        print(f"         1. 🔬 AI Researcher:            {result.researcher_score * 100:.1f}%")
+        print(f"         2. 🧑‍💻 AI & Software Engineer:   {result.engineer_score * 100:.1f}%")
+        print(f"         3. 🚀 Startup & Innovations:     {result.startup_score * 100:.1f}%")
+        print(f"         4. 🗑️ Noise / Irrelevant:       {result.noise_score * 100:.1f}%")
         print("-" * 80)
 
 

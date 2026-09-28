@@ -55,51 +55,44 @@ def _fetch_og_image(article_url: str) -> str | None:
     if not article_url or not article_url.startswith("http"):
         return None
 
-    # Social bots have allowed access across Cloudflare on OpenAI, Substack, Medium
-    user_agents = [
-        "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
-        "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    ]
-
-    for ua in user_agents:
-        try:
-            with httpx.Client(
-                timeout=5.0,
-                follow_redirects=True,
-                headers={
-                    "User-Agent": ua,
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-            ) as client:
-                resp = client.get(article_url)
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text[:150000], "html.parser")
-                    og = (
-                        soup.find("meta", property="og:image")
-                        or soup.find("meta", attrs={"name": "og:image"})
-                        or soup.find("meta", property="og:image:url")
-                        or soup.find("meta", property="og:image:secure_url")
-                        or soup.find("meta", property="twitter:image")
-                        or soup.find("meta", attrs={"name": "twitter:image"})
-                        or soup.find("meta", attrs={"name": "twitter:image:src"})
-                        or soup.find("link", rel="image_src")
-                    )
-                    if og:
-                        content = og.get("content") or og.get("href")
-                        if content and content.strip():
-                            img_url = content.strip()
-                            if not img_url.startswith("http"):
-                                img_url = urljoin(str(resp.url), img_url)
-                            if img_url.startswith("http"):
-                                return img_url
-        except Exception:
-            continue
+    try:
+        with httpx.Client(
+            timeout=3.0,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        ) as client:
+            resp = client.get(article_url)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text[:120000], "html.parser")
+                og = (
+                    soup.find("meta", property="og:image")
+                    or soup.find("meta", attrs={"name": "og:image"})
+                    or soup.find("meta", property="og:image:url")
+                    or soup.find("meta", property="og:image:secure_url")
+                    or soup.find("meta", property="twitter:image")
+                    or soup.find("meta", attrs={"name": "twitter:image"})
+                    or soup.find("meta", attrs={"name": "twitter:image:src"})
+                    or soup.find("link", rel="image_src")
+                )
+                if og:
+                    content = og.get("content") or og.get("href")
+                    if content and content.strip():
+                        raw_img = content.strip()
+                        if not raw_img.startswith("http"):
+                            raw_img = urljoin(str(resp.url), raw_img)
+                        if raw_img.startswith("http"):
+                            return raw_img
+    except Exception:
+        pass
 
     return None
 
 
+@lru_cache(maxsize=1024)
 def _resolve_canonical_url(url: str) -> str:
     """Resolve Google News redirection tokens to the real destination publisher URL."""
     if "news.google.com/rss/articles" in url or "news.google.com/articles" in url:
@@ -161,8 +154,9 @@ def _extract_image_url(
             if src.startswith("http"):
                 return src
 
-    # 5. Scrape og:image directly from the resolved article webpage
-    if article_url:
+    # 5. Scrape og:image only for primary blogs where OG provides high-res banners
+    primary_og_domains = ("openai.com", "berkeley.edu", "latent.space", "simonwillison.net", "huyenchip.com", "sebastianraschka.com")
+    if article_url and any(d in article_url for d in primary_og_domains):
         og_img = _fetch_og_image(article_url)
         if og_img:
             return og_img
@@ -175,7 +169,8 @@ def fetch_rss(
     feed_url: str,
     source_name: str,
     category: str | None = None,
-    limit: int = 20,
+    limit: int | None = 30,
+    max_age_days: int | None = 7,
 ) -> list[NewsItem]:
     feed = feedparser.parse(
         feed_url,
@@ -184,15 +179,14 @@ def fetch_rss(
 
     news_items = []
 
-    for entry in feed.entries[:limit]:
+    for entry in feed.entries:
+        if limit is not None and len(news_items) >= limit:
+            break
         title = entry.get("title", "").strip()
         raw_url = entry.get("link", "").strip()
 
         if not title or not raw_url:
             continue
-
-        # Resolve Google News redirection token to real publisher URL
-        url = _resolve_canonical_url(raw_url)
 
         # Published date
         published_at = None
@@ -206,6 +200,15 @@ def fetch_rss(
                 *entry.updated_parsed[:6],
                 tzinfo=timezone.utc,
             )
+
+        # Filter out articles older than max_age_days if published_at is present
+        if published_at and max_age_days is not None:
+            age_seconds = (datetime.now(timezone.utc) - published_at).total_seconds()
+            if age_seconds > max_age_days * 86400:
+                continue
+
+        # Resolve Google News redirection token to real publisher URL only for valid items
+        url = _resolve_canonical_url(raw_url)
 
         # Raw HTML content sources (summary vs content)
         raw_summary = entry.get("summary", "")
