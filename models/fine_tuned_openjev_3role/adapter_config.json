@@ -24,6 +24,7 @@
   "megatron_config": null,
   "megatron_core": "megatron.core",
   "modules_to_save": [
+    "score",
     "classifier",
     "score"
   ],
@@ -35,10 +36,10 @@
   "rank_pattern": {},
   "revision": null,
   "target_modules": [
-    "q_proj",
+    "o_proj",
     "v_proj",
-    "k_proj",
-    "o_proj"
+    "q_proj",
+    "k_proj"
   ],
   "target_parameters": null,
   "task_type": "SEQ_CLS",

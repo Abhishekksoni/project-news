@@ -18,15 +18,13 @@ def clean_display_text(text: str) -> str:
     return text
 
 
-def normalize_role_4(role_raw: str | None) -> tuple[str, str]:
-    """Normalize role string to (role_key, role_label) across 4 roles."""
+def normalize_role_3(role_raw: str | None) -> tuple[str, str]:
+    """Normalize role string to (role_key, role_label) across 3 roles."""
     r = (role_raw or "ai_engineer").lower().strip()
     if r in ("ai_researcher", "research", "researcher"):
         return "ai_researcher", "🔬 AI & ML Research"
-    elif r in ("ai_engineer", "engineer", "engineering", "ai_ml"):
+    elif r in ("ai_engineer", "engineer", "engineering", "ai_ml", "startup_innovations", "startup"):
         return "ai_engineer", "🧑‍💻 AI & Software Engineering"
-    elif r in ("startup_innovations", "startup_innovation", "startup", "startups"):
-        return "startup_innovations", "🚀 Startups & Innovation"
     else:
         return "noise", "🗑️ Noise / Irrelevant"
 
@@ -50,10 +48,9 @@ def generate_html_report(output_path: str = "report.html") -> str:
         if item not in github_items and item not in hf_model_items
     ]
 
-    # Calculate 4-role distribution for unique articles
+    # Calculate 3-role distribution for unique articles
     researcher_count = 0
     engineer_count = 0
-    startup_count = 0
     noise_count = 0
     unique_articles_count = 0
 
@@ -63,13 +60,11 @@ def generate_html_report(output_path: str = "report.html") -> str:
             sources_set.add(item.source)
         if not item.is_duplicate:
             unique_articles_count += 1
-            role_key, _ = normalize_role_4(item.primary_role)
+            role_key, _ = normalize_role_3(item.primary_role)
             if role_key == "ai_researcher":
                 researcher_count += 1
             elif role_key == "ai_engineer":
                 engineer_count += 1
-            elif role_key == "startup_innovations":
-                startup_count += 1
             else:
                 noise_count += 1
 
@@ -617,7 +612,7 @@ def generate_html_report(output_path: str = "report.html") -> str:
 
         <!-- SECTION 1: CURATED NEWS & PAPERS -->
         <div id="newsSection" class="view-section active">
-            <!-- 4 Role Category Tabs -->
+            <!-- 3 Role Category Tabs -->
             <div class="role-tabs">
                 <button class="role-tab active" data-filter="all" onclick="selectRoleTab('all', this)">
                     🌐 All Stories <span class="role-count">{unique_articles_count}</span>
@@ -627,9 +622,6 @@ def generate_html_report(output_path: str = "report.html") -> str:
                 </button>
                 <button class="role-tab tab-engineer" data-filter="ai_engineer" onclick="selectRoleTab('ai_engineer', this)">
                     🧑‍💻 AI & Software Engineering <span class="role-count">{engineer_count}</span>
-                </button>
-                <button class="role-tab tab-startup" data-filter="startup_innovations" onclick="selectRoleTab('startup_innovations', this)">
-                    🚀 Startups & Innovation <span class="role-count">{startup_count}</span>
                 </button>
                 <button class="role-tab tab-noise" data-filter="noise" onclick="selectRoleTab('noise', this)">
                     🗑️ Noise <span class="role-count">{noise_count}</span>
@@ -664,20 +656,18 @@ def generate_html_report(output_path: str = "report.html") -> str:
         date_str = item.published_at.strftime("%b %d, %Y") if item.published_at else "Recent"
         is_dup = "true" if item.is_duplicate else "false"
 
-        role_key, role_label = normalize_role_4(item.primary_role)
+        role_key, role_label = normalize_role_3(item.primary_role)
 
         res_score = getattr(item, 'researcher_score', 0.0) or 0.0
         eng_score = getattr(item, 'engineer_score', 0.0) or 0.0
-        startup_score = getattr(item, 'startup_score', 0.0) or 0.0
-        noise_score = (getattr(item, 'noise_score', 0.0) or 0.0)
+        noise_score = getattr(item, 'noise_score', 0.0) or 0.0
         if noise_score == 0.0 and getattr(item, 'irrelevant_score', 0.0):
             noise_score = getattr(item, 'irrelevant_score', 0.0)
 
         r_pct = int(res_score * 100)
         e_pct = int(eng_score * 100)
-        s_pct = int(startup_score * 100)
         n_pct = int(noise_score * 100)
-        conf_pct = int(item.confidence * 100) if item.confidence else max(r_pct, e_pct, s_pct, n_pct)
+        conf_pct = int(item.confidence * 100) if item.confidence else max(r_pct, e_pct, n_pct)
 
         img_tag = f'<img src="{html.escape(item.image_url)}" class="card-img" alt="Banner" onerror="this.style.display=\'none\'">' if item.image_url else ''
 
@@ -695,7 +685,7 @@ def generate_html_report(output_path: str = "report.html") -> str:
                     <a href="{url_esc}" target="_blank" class="card-title" title="{title_esc}">{title_esc}</a>
                     <p class="card-desc">{desc_esc}</p>
 
-                    <!-- 4-Role Decision Scores -->
+                    <!-- 3-Role Decision Scores -->
                     <div class="scores-panel">
                         <div class="scores-title">
                             <span>Role Probabilities</span>
@@ -716,13 +706,6 @@ def generate_html_report(output_path: str = "report.html") -> str:
                             <span class="score-num" style="color: var(--engineer-color);">{e_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🚀 Startups</span>
-                            <div class="score-bar-wrap">
-                                <div class="score-bar-fill" style="width: {s_pct}%; background: var(--startup-color);"></div>
-                            </div>
-                            <span class="score-num" style="color: var(--startup-color);">{s_pct}%</span>
-                        </div>
-                        <div class="score-row">
                             <span class="score-label">🗑️ Noise</span>
                             <div class="score-bar-wrap">
                                 <div class="score-bar-fill" style="width: {n_pct}%; background: var(--noise-color);"></div>
@@ -738,6 +721,7 @@ def generate_html_report(output_path: str = "report.html") -> str:
                 </div>
             </div>
         """
+
 
     html_content += """
             </div>

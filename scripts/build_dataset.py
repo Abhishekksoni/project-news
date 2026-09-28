@@ -1,4 +1,9 @@
-"""Extract historical news data from news.db and build auditable 4-role training/validation datasets.
+"""Extract historical news data from news.db and build auditable 3-role training, validation, and test datasets.
+
+Roles:
+0: ai_researcher (🔬 AI & ML Research)
+1: ai_engineer   (🧑‍💻 AI & Software Engineering)
+2: noise         (🗑️ Noise / Irrelevant)
 
 100% Semantic Content Classification based STRICTLY on Title + Description text.
 Zero source/category metadata bias.
@@ -9,55 +14,48 @@ import json
 import random
 import re
 import sqlite3
+import sys
 from pathlib import Path
+
+# Add src to path so taxonomy is imported
+src_path = str(Path(__file__).resolve().parent.parent / "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+from classification.taxonomy import ID2LABEL, LABEL2ID, ROLES, ROLE_DISPLAY_NAMES
 
 
 def classify_text_content(title: str, description: str) -> tuple[str, float, str]:
     """
     Pure semantic text analyzer based strictly on the Title and Description text.
     Evaluates term frequency, multi-word phrases, and semantic domain weights.
+    Returns: (role_name, confidence, justification)
     """
     title_clean = title.strip()
     desc_clean = description.strip()
     full_text = f"{title_clean}. {desc_clean}".lower()
 
-    # --- 1. NOISE FILTER (Non-technical & Out-of-Scope) ---
+    # --- 1. NOISE FILTER (Non-technical, Pure Retail, Gossip, Sports, General VC/Deals) ---
     noise_keywords = [
         "celebrity", "movie", "actor", "actress", "cricket", "football", "sports",
         "horoscope", "recipe", "diet", "weight loss", "fashion", "sneakers", "clothing",
         "sunglasses", "cosmetics", "daily soap", "box office", "suicide", "crime", "murder",
         "upsc", "ips officer", "ias officer", "citizenship", "supreme court", "midterm elections",
         "campus surveillance", "anti-human", "pelican riding bicycles",
+        "luxury retail", "real estate", "food delivery", "travel guide",
     ]
     noise_hits = [w for w in noise_keywords if re.search(r"\b" + re.escape(w) + r"\b", full_text)]
-    if len(noise_hits) >= 1 and not any(k in full_text for k in ["llm", "ai model", "neural", "gpu", "compiler", "dataset"]):
+    if len(noise_hits) >= 1 and not any(k in full_text for k in ["llm", "ai model", "neural", "gpu", "compiler", "dataset", "deep learning"]):
         return "noise", 0.95, f"Non-technical topic detected ({', '.join(noise_hits[:2])})."
 
-    # --- 2. STARTUP & VENTURE SIGNALS ---
-    startup_keywords = [
-        "seed round", "series a", "series b", "series c", "series d", "pre-seed",
-        "funding round", "valuation", "valued at", "raises", "raised", "raising",
-        "secures", "secured", "closes", "closed", "acquired", "acquisition", "buys",
-        "bought", "venture capital", "angel investor", "founders fund", "venture fund",
-        "incubator", "accelerator", "first close", "unicorn", "investors", "investment",
-        "invests", "backed by", "commercialization", "enterprise sales", "disrupt",
-        "startup", "startups", "co-founders", "partner with", "partnership", "mou",
-    ]
-    # Check for currency amounts ($10M, ₹450 cr, Rs 3.3 crore, $1 billion)
-    has_currency_amount = bool(re.search(r"(\$\s*\d+(\.\d+)?\s*(m|b|k|million|billion)?|₹\s*\d+|rs\.?\s*\d+(\.\d+)?\s*(cr|crore|lakh)?)", full_text))
+    # Non-technical funding / business deals without AI or tech substance -> noise
+    funding_only_terms = ["seed round", "series a", "series b", "angel investment", "first close", "valuation", "fundraise"]
+    has_funding = any(f in full_text for f in funding_only_terms)
+    has_tech = any(t in full_text for t in ["ai", "model", "llm", "algorithm", "software", "api", "code", "neural", "gpu", "data"])
+    if has_funding and not has_tech:
+        return "noise", 0.90, "General financial/funding deal without technical AI/engineering depth."
 
-    startup_score = 0
-    startup_hits = []
-    for kw in startup_keywords:
-        if re.search(r"\b" + re.escape(kw) + r"\b", full_text):
-            startup_score += 2
-            startup_hits.append(kw)
-
-    if has_currency_amount and any(w in full_text for w in ["raise", "funding", "seed", "valuation", "fund", "invest", "acquired", "buys", "sold", "cr", "crore"]):
-        startup_score += 5
-        startup_hits.append("currency_funding_amount")
-
-    # --- 3. AI & ML RESEARCH SIGNALS ---
+    # --- 2. AI & ML RESEARCH SIGNALS ---
     research_keywords = [
         "arxiv", "paper", "papers", "theorem", "proof", "mathematical", "loss function",
         "ablation study", "empirical evaluation", "scaling law", "scaling laws",
@@ -75,7 +73,7 @@ def classify_text_content(title: str, description: str) -> tuple[str, float, str
             research_score += 2
             research_hits.append(kw)
 
-    # --- 4. SOFTWARE & AI ENGINEERING SIGNALS ---
+    # --- 3. SOFTWARE & AI ENGINEERING SIGNALS ---
     eng_keywords = [
         "github", "library", "sdk", "api", "apis", "server", "docker", "cuda", "kernel",
         "vllm", "llama.cpp", "ollama", "gguf", "fp8", "bf16", "awq", "quantization",
@@ -95,38 +93,29 @@ def classify_text_content(title: str, description: str) -> tuple[str, float, str
 
     # Strong title priority overrides
     title_lower = title_clean.lower()
-    if any(term in title_lower for term in ["build and sell", "raises $", "raised $", "series a", "series b", "seed round", "funding at", "first close at", "acquires", "buys startup"]):
-        return "startup_innovations", 0.95, f"Title indicates commercial startup/funding event ({', '.join(startup_hits[:2])})."
-
     if any(term in title_lower for term in ["arxiv:", "scaling law", "rethinking deep search", "post-training recipe", "chain-of-thought in", "bounds for"]):
         return "ai_researcher", 0.95, f"Title indicates academic/theoretical research paper ({', '.join(research_hits[:2])})."
 
     # Compare weighted scores
-    scores = {
-        "ai_researcher": research_score,
-        "ai_engineer": eng_score,
-        "startup_innovations": startup_score,
-    }
-
-    max_role = max(scores, key=scores.get)
-    max_score = scores[max_role]
-
-    if max_score >= 2:
-        if max_role == "ai_researcher":
-            return "ai_researcher", 0.90, f"Text focuses on ML research, benchmarks, or paper concepts: {', '.join(research_hits[:3])}"
-        elif max_role == "ai_engineer":
-            return "ai_engineer", 0.90, f"Text focuses on software engineering, SDKs, tools, or deployment: {', '.join(eng_hits[:3])}"
-        else:
-            return "startup_innovations", 0.90, f"Text focuses on startup funding, commercial growth, or acquisitions: {', '.join(startup_hits[:3])}"
+    if research_score > eng_score and research_score >= 2:
+        return "ai_researcher", 0.90, f"Text focuses on ML research, benchmarks, or paper concepts: {', '.join(research_hits[:3])}"
+    elif eng_score >= 2:
+        return "ai_engineer", 0.90, f"Text focuses on software engineering, SDKs, tools, or deployment: {', '.join(eng_hits[:3])}"
 
     # Default technical fallback
     if any(w in full_text for w in ["ai", "model", "llm", "software", "data", "robot", "tech", "computer"]):
         return "ai_engineer", 0.70, "General technical discussion categorized as Software & AI Engineering."
 
-    return "noise", 0.80, "General non-technical content without specific engineering, research, or startup keywords."
+    return "noise", 0.80, "General non-technical content without specific engineering or research keywords."
 
 
-def build_dataset_from_db(db_path: str = "news.db", output_dir: str = "dataset", val_split: float = 0.2):
+def build_dataset_from_db(
+    db_path: str = "news.db",
+    output_dir: str = "dataset",
+    train_ratio: float = 0.70,
+    val_ratio: float = 0.15,
+    test_ratio: float = 0.15,
+):
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
@@ -140,16 +129,9 @@ def build_dataset_from_db(db_path: str = "news.db", output_dir: str = "dataset",
 
     print(f"Loaded {len(rows)} unique historical items from {db_path}.")
 
-    label_to_id = {
-        "ai_researcher": 0,
-        "ai_engineer": 1,
-        "startup_innovations": 2,
-        "noise": 3,
-    }
-
     labeled_dataset = []
     audit_records = []
-    stats = {"ai_researcher": 0, "ai_engineer": 0, "startup_innovations": 0, "noise": 0}
+    stats = {role: 0 for role in ROLES}
 
     for item in rows:
         title = (item.get("title") or "").strip()
@@ -160,11 +142,10 @@ def build_dataset_from_db(db_path: str = "news.db", output_dir: str = "dataset",
             continue
 
         label_key, conf, justification = classify_text_content(title, desc)
-        label_id = label_to_id[label_key]
+        label_id = LABEL2ID[label_key]
 
         stats[label_key] += 1
 
-        # Format input text with clear instruction framing
         text_prompt = f"Based on this technical news summary: Title: {title}. Description: {desc}. Source: {source}."
 
         entry = {
@@ -185,17 +166,22 @@ def build_dataset_from_db(db_path: str = "news.db", output_dir: str = "dataset",
             "justification": justification,
         })
 
-    # Shuffle and split into Train / Validation
+    # Shuffle deterministically with seed
     random.seed(42)
     random.shuffle(labeled_dataset)
 
-    split_idx = int(len(labeled_dataset) * (1 - val_split))
-    train_data = labeled_dataset[:split_idx]
-    val_data = labeled_dataset[split_idx:]
+    n_total = len(labeled_dataset)
+    n_train = int(n_total * train_ratio)
+    n_val = int(n_total * val_ratio)
 
-    # Write JSONL
+    train_data = labeled_dataset[:n_train]
+    val_data = labeled_dataset[n_train : n_train + n_val]
+    test_data = labeled_dataset[n_train + n_val :]
+
+    # Write JSONL files
     train_file = out_path / "train.jsonl"
     val_file = out_path / "val.jsonl"
+    test_file = out_path / "test.jsonl"
 
     with open(train_file, "w", encoding="utf-8") as f:
         for ex in train_data:
@@ -205,30 +191,33 @@ def build_dataset_from_db(db_path: str = "news.db", output_dir: str = "dataset",
         for ex in val_data:
             f.write(json.dumps(ex) + "\n")
 
+    with open(test_file, "w", encoding="utf-8") as f:
+        for ex in test_data:
+            f.write(json.dumps(ex) + "\n")
+
     # Generate Audit HTML
     generate_audit_html(audit_records, out_path / "audit_review.html", stats)
 
-    print(f"\n================ DATASET CREATION SUMMARY ================")
+    print(f"\n================ 3-ROLE DATASET CREATION SUMMARY ================")
     print(f" Total Unique Historical Records: {len(labeled_dataset)}")
-    print(f" Training Set (80%):             {len(train_data)} examples -> {train_file}")
-    print(f" Validation Set (20%):           {len(val_data)} examples -> {val_file}")
-    print(f" Class Breakdown (Strict Semantic Text Content):")
-    print(f"   🔬 AI / ML Researcher (0):      {stats['ai_researcher']}")
-    print(f"   🧑‍💻 AI & Software Engineer (1):  {stats['ai_engineer']}")
-    print(f"   🚀 Startup & Innovations (2):  {stats['startup_innovations']}")
-    print(f"   🗑️ Noise / Irrelevant (3):     {stats['noise']}")
+    print(f" Training Set (70%):             {len(train_data)} examples -> {train_file}")
+    print(f" Validation Set (15%):           {len(val_data)} examples -> {val_file}")
+    print(f" Held-Out Test Set (15%):        {len(test_data)} examples -> {test_file}")
+    print(f" Class Breakdown:")
+    for role in ROLES:
+        print(f"   {ROLE_DISPLAY_NAMES[role]} ({LABEL2ID[role]}): {stats[role]}")
     print(f" Visual Audit Sheet:             {out_path / 'audit_review.html'}")
-    print(f"==========================================================\n")
+    print(f"=================================================================\n")
 
 
 def generate_audit_html(records: list, output_file: Path, stats: dict):
-    """Generate an interactive HTML audit file with category selector tabs, live editing dropdowns, and dataset export."""
+    """Generate an interactive HTML audit file for 3 roles with category selector tabs, live editing dropdowns, and dataset export."""
     records_json = json.dumps(records)
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Training Dataset Label Review & Editor (news.db)</title>
+    <title>3-Role Training Dataset Label Review & Editor (news.db)</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {{
@@ -239,7 +228,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
             --text-muted: #9ca3af;
             --research-color: #38bdf8;
             --engineer-color: #c084fc;
-            --startup-color: #fb923c;
             --noise-color: #94a3b8;
         }}
         * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }}
@@ -250,7 +238,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
         h1 {{ font-size: 2rem; font-weight: 800; color: #38bdf8; }}
         p.subtitle {{ color: var(--text-muted); font-size: 0.95rem; margin-top: 0.2rem; }}
         
-        /* Action Buttons */
         .header-actions {{ display: flex; gap: 0.75rem; align-items: center; }}
         .btn-export {{
             padding: 0.75rem 1.4rem;
@@ -269,7 +256,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
         }}
         .btn-export:hover {{ transform: translateY(-2px); opacity: 0.95; }}
 
-        /* Category Filter Selector Tabs */
         .category-nav {{ display: flex; gap: 0.6rem; margin-bottom: 1.5rem; flex-wrap: wrap; }}
         .cat-btn {{
             padding: 0.65rem 1.25rem;
@@ -289,7 +275,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
         .cat-btn.active {{ color: #fff; background: #1e293b; border-color: #38bdf8; box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2); }}
         .cat-btn.active.tab-research {{ border-color: var(--research-color); }}
         .cat-btn.active.tab-engineer {{ border-color: var(--engineer-color); }}
-        .cat-btn.active.tab-startup {{ border-color: var(--startup-color); }}
         .cat-btn.active.tab-noise {{ border-color: var(--noise-color); }}
         .cat-count {{
             font-family: 'JetBrains Mono', monospace;
@@ -299,7 +284,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
             background: rgba(255, 255, 255, 0.1);
         }}
 
-        /* Search Controls */
         .controls {{ display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; }}
         .search-box {{
             flex: 1;
@@ -314,13 +298,11 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
         .search-box:focus {{ border-color: #38bdf8; }}
         .visible-count {{ font-size: 0.88rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }}
 
-        /* Table */
         table {{ width: 100%; border-collapse: collapse; background: var(--card-bg); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }}
         th, td {{ padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.88rem; vertical-align: middle; }}
         th {{ background: #0f172a; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; font-weight: 700; }}
         tr:hover {{ background: rgba(255, 255, 255, 0.02); }}
 
-        /* Interactive Select Dropdown */
         .label-select {{
             background: #0f172a;
             color: var(--text-main);
@@ -335,7 +317,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
         }}
         .label-select.ai_researcher {{ border-color: var(--research-color); color: var(--research-color); }}
         .label-select.ai_engineer {{ border-color: var(--engineer-color); color: var(--engineer-color); }}
-        .label-select.startup_innovations {{ border-color: var(--startup-color); color: var(--startup-color); }}
         .label-select.noise {{ border-color: var(--noise-color); color: var(--noise-color); }}
         
         .edited-badge {{
@@ -355,12 +336,12 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
     <div class="container">
         <div class="header-row">
             <div>
-                <h1>Historical Dataset Label Review & Editor</h1>
-                <p class="subtitle">Inspect records by category, change any misclassified labels via the dropdown, and download updated datasets.</p>
+                <h1>3-Role Dataset Label Review & Editor</h1>
+                <p class="subtitle">Inspect records by category, edit misclassified labels via the dropdown, and export updated splits.</p>
             </div>
             <div class="header-actions">
                 <button class="btn-export" onclick="exportUpdatedDatasets()">
-                    💾 Export / Save Updated Datasets (.jsonl)
+                    💾 Export Updated Datasets (.jsonl)
                 </button>
             </div>
         </div>
@@ -375,9 +356,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
             </button>
             <button class="cat-btn tab-engineer" onclick="selectCategory('ai_engineer', this)">
                 🧑‍💻 AI & Software Engineering <span class="cat-count" id="count-ai_engineer" style="color:var(--engineer-color);">{stats['ai_engineer']}</span>
-            </button>
-            <button class="cat-btn tab-startup" onclick="selectCategory('startup_innovations', this)">
-                🚀 Startups & Innovation <span class="cat-count" id="count-startup_innovations" style="color:var(--startup-color);">{stats['startup_innovations']}</span>
             </button>
             <button class="cat-btn tab-noise" onclick="selectCategory('noise', this)">
                 🗑️ Noise / Irrelevant <span class="cat-count" id="count-noise" style="color:var(--noise-color);">{stats['noise']}</span>
@@ -418,7 +396,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
                         <select class="label-select {cat}" onchange="changeLabel('{rid}', this.value, this)">
                             <option value="ai_researcher" {'selected' if cat == 'ai_researcher' else ''}>🔬 AI Research</option>
                             <option value="ai_engineer" {'selected' if cat == 'ai_engineer' else ''}>🧑‍💻 AI Engineering</option>
-                            <option value="startup_innovations" {'selected' if cat == 'startup_innovations' else ''}>🚀 Startups</option>
                             <option value="noise" {'selected' if cat == 'noise' else ''}>🗑️ Noise</option>
                         </select>
                         <span class="edited-badge">EDITED</span>
@@ -441,8 +418,7 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
         const LABEL_MAP = {{
             'ai_researcher': 0,
             'ai_engineer': 1,
-            'startup_innovations': 2,
-            'noise': 3
+            'noise': 2
         }};
         let currentCat = 'all';
 
@@ -469,7 +445,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
                 'all': AUDIT_DATA.length,
                 'ai_researcher': 0,
                 'ai_engineer': 0,
-                'startup_innovations': 0,
                 'noise': 0
             }};
 
@@ -482,7 +457,6 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
             document.getElementById('count-all').textContent = counts['all'];
             document.getElementById('count-ai_researcher').textContent = counts['ai_researcher'];
             document.getElementById('count-ai_engineer').textContent = counts['ai_engineer'];
-            document.getElementById('count-startup_innovations').textContent = counts['startup_innovations'];
             document.getElementById('count-noise').textContent = counts['noise'];
         }}
 
@@ -524,19 +498,24 @@ def generate_audit_html(records: list, output_file: Path, stats: dict):
                 label_name: item.assigned_label
             }}));
 
-            // Split 80/20
+            // Split 70 / 15 / 15
             const shuffled = [...formatted].sort(() => Math.random() - 0.5);
-            const splitIdx = Math.floor(shuffled.length * 0.8);
-            const train = shuffled.slice(0, splitIdx);
-            const val = shuffled.slice(splitIdx);
+            const nTrain = Math.floor(shuffled.length * 0.70);
+            const nVal = Math.floor(shuffled.length * 0.15);
+
+            const train = shuffled.slice(0, nTrain);
+            const val = shuffled.slice(nTrain, nTrain + nVal);
+            const test = shuffled.slice(nTrain + nVal);
 
             const trainJsonl = train.map(x => JSON.stringify(x)).join('\\n') + '\\n';
             const valJsonl = val.map(x => JSON.stringify(x)).join('\\n') + '\\n';
+            const testJsonl = test.map(x => JSON.stringify(x)).join('\\n') + '\\n';
 
             downloadFile(trainJsonl, 'train.jsonl', 'application/json');
-            setTimeout(() => downloadFile(valJsonl, 'val.jsonl', 'application/json'), 300);
+            setTimeout(() => downloadFile(valJsonl, 'val.jsonl', 'application/json'), 200);
+            setTimeout(() => downloadFile(testJsonl, 'test.jsonl', 'application/json'), 400);
 
-            alert(`✅ Successfully exported updated datasets!\\n\\nTrain Set: ${{train.length}} rows\\nValidation Set: ${{val.length}} rows\\n\\nSaved directly to your Downloads folder. Move them to project-news/dataset/ to train!`);
+            alert(`✅ Successfully exported updated datasets!\\n\\nTrain: ${{train.length}} | Val: ${{val.length}} | Test: ${{test.length}}\\n\\nSaved directly to your Downloads folder.`);
         }}
 
         function downloadFile(content, fileName, contentType) {{

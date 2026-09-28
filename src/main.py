@@ -64,21 +64,16 @@ FEEDS = [
         "category": "machine_learning",
     },
 
-    # 2. TechCrunch & VentureBeat (AI, Startups, VC & Deals)
+    # 2. TechCrunch & VentureBeat AI Feeds
     {
         "name": "TechCrunch AI",
         "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
-        "category": "startup_innovation",
-    },
-    {
-        "name": "TechCrunch Startups",
-        "url": "https://techcrunch.com/category/startups/feed/",
-        "category": "startup_innovation",
+        "category": "ai_engineering",
     },
     {
         "name": "VentureBeat AI & Tech",
         "url": "https://venturebeat.com/feed/",
-        "category": "startup_innovation",
+        "category": "ai_engineering",
     },
 
     # 3. Top AI Engineering, Developer & Cloud Feeds
@@ -135,15 +130,10 @@ FEEDS = [
         "category": "machine_learning",
     },
 
-    # 5. IITs & DeepTech Research Feeds
-    {
-        "name": "IIT Innovations & Startups",
-        "url": "https://news.google.com/rss/search?q=IIT+(startup+OR+innovation+OR+research+OR+invention)&hl=en-IN&gl=IN&ceid=IN:en",
-        "category": "iit_startups",
-    },
+    # 5. Top IITs DeepTech Research
     {
         "name": "Top IITs Research (Madras/Bombay/Delhi/Kanpur)",
-        "url": "https://news.google.com/rss/search?q=%22IIT+Madras%22+OR+%22IIT+Bombay%22+OR+%22IIT+Delhi%22+OR+%22IIT+Kanpur%22+(research+OR+startup+OR+patent)&hl=en-IN&gl=IN&ceid=IN:en",
+        "url": "https://news.google.com/rss/search?q=%22IIT+Madras%22+OR+%22IIT+Bombay%22+OR+%22IIT+Delhi%22+OR+%22IIT+Kanpur%22+(research+OR+patent+OR+technology)&hl=en-IN&gl=IN&ceid=IN:en",
         "category": "iit_research",
     },
 ]
@@ -219,7 +209,7 @@ def main():
     print(f"   Duplicate Articles: {len(duplicates)}\n")
 
     # Step 3: Fast 3-Role Decision Classification (OpenJev Local/Hosted Inference)
-    print("3. Scoring articles across 3 roles using OpenJev model (AI/ML, Startups, Noise)...")
+    print("3. Scoring articles across 3 roles using OpenJev model (AI Research, AI Engineering, Noise)...")
     from classification.jev_client import classify_with_jev
 
 

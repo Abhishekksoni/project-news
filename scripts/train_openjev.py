@@ -1,187 +1,240 @@
-"""Robust LoRA Fine-Tuning Script for AlexWortega/openjev across 4 Target Roles on Apple Silicon MPS / CUDA."""
+"""LoRA Fine-Tuning for AlexWortega/openjev on Apple Silicon Metal GPU (mps).
 
+Refactored for 3-Role Classification:
+0: ai_researcher (🔬 AI & ML Research)
+1: ai_engineer   (🧑‍💻 AI & Software Engineering)
+2: noise         (🗑️ Noise / Irrelevant)
+
+Features:
+- Reproducible random seed (set_seed(42))
+- Pinned tokenizer & model loading (no silent fallbacks)
+- Explicit pad_token_id configuration
+- Trainable-only parameters optimizer
+- Exact ceiling step calculation with Cosine learning rate decay
+- Best model checkpointing based on validation weighted F1
+- Full per-class classification report & confusion matrix
+- Unbiased final evaluation on held-out test.jsonl
+"""
+
+import functools
+import json
+import math
 import os
-import shutil
+import sys
 import time
 from pathlib import Path
-import numpy as np
+
+# Add src to path for taxonomy
+src_path = str(Path(__file__).resolve().parent.parent / "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 import torch
-from torch.utils.data import DataLoader
 from datasets import load_dataset
+from peft import LoraConfig, PeftModel, TaskType, get_peft_model
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
+from torch.utils.data import DataLoader
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    DataCollatorWithPadding,
     get_cosine_schedule_with_warmup,
+    set_seed,
 )
-from peft import LoraConfig, TaskType, get_peft_model, PeftModel
-from sklearn.metrics import accuracy_score, f1_score
 
+from classification.taxonomy import ID2LABEL, LABEL2ID, ROLE_DISPLAY_NAMES, ROLES
+
+# 1. Configuration
 MODEL_ID = "AlexWortega/openjev"
 DEFAULT_SUBFOLDER = "qwen3.5-0.8b-nli-v2s-long"
-OUTPUT_MODEL_DIR = "./models/fine_tuned_openjev_4role"
-
-ID2LABEL = {
-    0: "ai_researcher",
-    1: "ai_engineer",
-    2: "startup_innovations",
-    3: "noise",
-}
-LABEL2ID = {v: k for k, v in ID2LABEL.items()}
+OUTPUT_MODEL_DIR = "models/fine_tuned_openjev_3role"
+NUM_LABELS = len(ROLES)
 
 
-def collate_fn(batch, pad_token_id: int):
-    """Custom fast collation with dynamic padding for torch tensors."""
-    max_len = max(len(item["input_ids"]) for item in batch)
-    input_ids = []
-    attention_masks = []
-    labels = []
-
-    for item in batch:
-        seq_len = len(item["input_ids"])
-        pad_len = max_len - seq_len
-        input_ids.append(item["input_ids"] + [pad_token_id] * pad_len)
-        attention_masks.append(item["attention_mask"] + [0] * pad_len)
-        labels.append(item["labels"])
-
-    return {
-        "input_ids": torch.tensor(input_ids, dtype=torch.long),
-        "attention_mask": torch.tensor(attention_masks, dtype=torch.long),
-        "labels": torch.tensor(labels, dtype=torch.long),
-    }
+def collate_wrapper(batch, data_collator):
+    return data_collator(batch)
 
 
-def evaluate_model(model, dataloader, device):
-    """Evaluate accuracy and weighted F1 on validation set."""
+def evaluate_model(model, val_loader, device, id2label, role_names):
+    """Run evaluation and return (loss, weighted_f1, macro_f1, report_str, cm)."""
     model.eval()
+    total_loss = 0.0
     all_preds = []
     all_labels = []
-    total_loss = 0.0
 
     with torch.no_grad():
-        for batch in dataloader:
+        for batch in val_loader:
             batch = {k: v.to(device) for k, v in batch.items()}
             outputs = model(**batch)
             loss = outputs.loss
             total_loss += loss.item() * len(batch["labels"])
             logits = outputs.logits
-            preds = torch.argmax(logits, dim=-1).cpu().numpy()
+            preds = torch.argmax(logits, dim=-1).cpu().tolist()
             all_preds.extend(preds)
-            all_labels.extend(batch["labels"].cpu().numpy())
+            all_labels.extend(batch["labels"].cpu().tolist())
 
-    avg_loss = total_loss / len(all_labels) if all_labels else 0.0
-    acc = float(accuracy_score(all_labels, all_preds))
-    f1 = float(f1_score(all_labels, all_preds, average="weighted"))
-    return avg_loss, acc, f1
+    n_samples = len(all_labels)
+    avg_loss = total_loss / n_samples if n_samples else 0.0
+    weighted_f1 = float(f1_score(all_labels, all_preds, average="weighted", zero_division=0))
+    macro_f1 = float(f1_score(all_labels, all_preds, average="macro", zero_division=0))
+
+    target_names = [role_names.get(id2label[i], id2label[i]) for i in range(len(id2label))]
+    report_str = classification_report(
+        all_labels,
+        all_preds,
+        labels=list(range(len(id2label))),
+        target_names=target_names,
+        digits=4,
+        zero_division=0,
+    )
+    cm = confusion_matrix(all_labels, all_preds, labels=list(range(len(id2label))))
+
+    return avg_loss, weighted_f1, macro_f1, report_str, cm
 
 
 def train_openjev():
     print("=" * 80)
-    print(" 🚀 STARTING 4-ROLE LoRA FINE-TUNING FOR AlexWortega/openjev")
+    print(" 🚀 STARTING ROBUST 3-ROLE LoRA FINE-TUNING FOR AlexWortega/openjev")
     print("=" * 80)
 
-    # 1. Device Setup
-    device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f" Target Compute Accelerator: {device.upper()}")
-    os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+    # 1. Set seed for complete reproducibility
+    set_seed(42)
 
-    # 2. Check Datasets
+    # 2. Device Setup
+    if torch.backends.mps.is_available():
+        device = "mps"
+    elif torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = "cpu"
+    print(f" Target Compute Accelerator: {device.upper()}")
+
+    # 3. Check Datasets
     train_path = "dataset/train.jsonl"
     val_path = "dataset/val.jsonl"
-    if not os.path.exists(train_path) or not os.path.exists(val_path):
+    test_path = "dataset/test.jsonl"
+    if not os.path.exists(train_path) or not os.path.exists(val_path) or not os.path.exists(test_path):
         raise FileNotFoundError("Datasets not found! Please run `python scripts/build_dataset.py` first.")
 
-    raw_datasets = load_dataset("json", data_files={"train": train_path, "validation": val_path})
-    print(f" Loaded Train Set: {len(raw_datasets['train'])} rows | Val Set: {len(raw_datasets['validation'])} rows")
+    raw_datasets = load_dataset(
+        "json",
+        data_files={"train": train_path, "validation": val_path, "test": test_path},
+    )
+    print(
+        f" Loaded Train Set: {len(raw_datasets['train'])} rows | "
+        f"Val Set: {len(raw_datasets['validation'])} rows | "
+        f"Held-Out Test Set: {len(raw_datasets['test'])} rows"
+    )
 
-    # 3. Tokenizer
+    # 4. Load Tokenizer with strict error handling (no silent swaps)
     subfolder = os.getenv("OPENJEV_SUBFOLDER", DEFAULT_SUBFOLDER)
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(
-            MODEL_ID,
-            subfolder=subfolder,
-            trust_remote_code=True,
-        )
-    except Exception:
-        tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B", trust_remote_code=True)
-
+    print(f" Loading Tokenizer for {MODEL_ID} (subfolder: {subfolder})...")
+    tokenizer = AutoTokenizer.from_pretrained(
+        MODEL_ID,
+        subfolder=subfolder,
+        trust_remote_code=True,
+    )
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # 4. Tokenization Function (max 256 tokens)
-    def tokenize(examples):
-        tokens = tokenizer(examples["text"], truncation=True, max_length=256)
-        tokens["labels"] = examples["label"]
-        return tokens
+    # 5. Tokenize Dataset
+    def preprocess_function(examples):
+        return tokenizer(examples["text"], truncation=True, max_length=256)
 
-    train_encoded = raw_datasets["train"].map(tokenize, batched=True, remove_columns=raw_datasets["train"].column_names)
-    val_encoded = raw_datasets["validation"].map(tokenize, batched=True, remove_columns=raw_datasets["validation"].column_names)
-
-    pad_id = tokenizer.pad_token_id or 0
-    train_loader = DataLoader(
-        train_encoded,
-        batch_size=2,
-        shuffle=True,
-        collate_fn=lambda b: collate_fn(b, pad_id),
+    tokenized_datasets = raw_datasets.map(
+        preprocess_function,
+        batched=True,
+        remove_columns=["id", "text", "label_name"],
     )
-    val_loader = DataLoader(
-        val_encoded,
-        batch_size=4,
-        shuffle=False,
-        collate_fn=lambda b: collate_fn(b, pad_id),
-    )
+    tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
+    tokenized_datasets.set_format("torch")
 
-    # 5. Model Loading & LoRA Configuration
-    print(f" Loading base model weights: {MODEL_ID} ({subfolder})...")
+    # 6. Base Model Loading
+    print(f" Loading Base Model: {MODEL_ID} with {NUM_LABELS} Output Classes...")
     base_model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_ID,
         subfolder=subfolder,
-        num_labels=4,
+        num_labels=NUM_LABELS,
         id2label=ID2LABEL,
         label2id=LABEL2ID,
         ignore_mismatched_sizes=True,
         trust_remote_code=True,
         dtype=torch.float32,
     )
+    base_model.config.pad_token_id = tokenizer.pad_token_id
 
-    peft_config = LoraConfig(
+    # 7. LoRA Configuration
+    lora_config = LoraConfig(
         task_type=TaskType.SEQ_CLS,
         r=16,
         lora_alpha=32,
         lora_dropout=0.05,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        bias="none",
+        modules_to_save=["score"],
     )
-    model = get_peft_model(base_model, peft_config).to(device)
+    model = get_peft_model(base_model, lora_config)
+    model.to(device)
+
+    print("\n Trainable Parameter Summary:")
     model.print_trainable_parameters()
 
-    # 6. Training Hyperparameters
-    epochs = 3
+    # 8. DataLoaders
+    batch_size = 2
     grad_accum_steps = 4
-    lr = 3e-4
-    total_steps = (len(train_loader) // grad_accum_steps) * epochs
-    warmup_steps = int(total_steps * 0.1)
+    epochs = 3
+    lr = 2e-4
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
-    lr_scheduler = get_cosine_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=warmup_steps,
-        num_training_steps=total_steps,
+    data_collator = DataCollatorWithPadding(tokenizer=tokenizer, pad_to_multiple_of=8)
+    collate_fn = functools.partial(collate_wrapper, data_collator=data_collator)
+
+    train_loader = DataLoader(
+        tokenized_datasets["train"],
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+    )
+    val_loader = DataLoader(
+        tokenized_datasets["validation"],
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
+    )
+    test_loader = DataLoader(
+        tokenized_datasets["test"],
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
     )
 
-    # Initial zero-shot evaluation baseline
-    print("\n Evaluating pre-training baseline on validation set...")
-    base_loss, base_acc, base_f1 = evaluate_model(model, val_loader, device)
-    print(f" Baseline Validation -> Loss: {base_loss:.4f} | Accuracy: {base_acc * 100:.2f}% | F1: {base_f1:.4f}\n")
+    # 9. Optimizer & Scheduler (trainable parameters only)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=0.01)
 
-    # 7. Training Loop
-    print(f" Beginning LoRA fine-tuning for {epochs} epochs ({total_steps} optimizer steps)...")
-    start_time = time.time()
-    global_step = 0
-    best_acc = 0.0
+    total_update_steps = math.ceil(len(train_loader) / grad_accum_steps) * epochs
+    warmup_steps = int(0.1 * total_update_steps)
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=total_update_steps,
+    )
+
+    print(f"\n Training Config:")
+    print(f"   Epochs:                     {epochs}")
+    print(f"   Batch Size (Micro):         {batch_size}")
+    print(f"   Gradient Accumulation:      {grad_accum_steps} (Effective Batch Size = {batch_size * grad_accum_steps})")
+    print(f"   Total Optimizer Steps:      {total_update_steps} (Warmup = {warmup_steps})")
+    print(f"   Learning Rate:              {lr} (Cosine decay)\n")
+
+    # 10. Training Loop with Checkpointing
+    best_val_f1 = -1.0
+    best_epoch = 0
+    os.makedirs(OUTPUT_MODEL_DIR, exist_ok=True)
 
     for epoch in range(1, epochs + 1):
         model.train()
-        epoch_loss = 0.0
-        step_loss = 0.0
+        total_train_loss = 0.0
+        start_time = time.time()
         optimizer.zero_grad()
 
         for step, batch in enumerate(train_loader, 1):
@@ -189,42 +242,96 @@ def train_openjev():
             outputs = model(**batch)
             loss = outputs.loss / grad_accum_steps
             loss.backward()
-
-            step_loss += loss.item() * grad_accum_steps
-            epoch_loss += loss.item() * grad_accum_steps
+            total_train_loss += loss.item() * grad_accum_steps
 
             if step % grad_accum_steps == 0 or step == len(train_loader):
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(trainable_params, max_norm=1.0)
                 optimizer.step()
-                lr_scheduler.step()
+                scheduler.step()
                 optimizer.zero_grad()
-                global_step += 1
 
-                if global_step % 10 == 0 or global_step == total_steps:
-                    curr_lr = lr_scheduler.get_last_lr()[0]
-                    print(f" [Epoch {epoch}/{epochs} | Step {global_step}/{total_steps}] Loss: {step_loss / grad_accum_steps:.4f} | LR: {curr_lr:.2e}")
-                step_loss = 0.0
+            if step % 40 == 0 or step == len(train_loader):
+                print(
+                    f"   [Epoch {epoch}/{epochs} | Step {step:3d}/{len(train_loader)}] "
+                    f"Batch Loss: {loss.item() * grad_accum_steps:.4f} | LR: {scheduler.get_last_lr()[0]:.2e}"
+                )
 
-        # Epoch Validation
-        val_loss, val_acc, val_f1 = evaluate_model(model, val_loader, device)
-        print(f"\n ⭐ [Epoch {epoch}/{epochs} SUMMARY] Val Loss: {val_loss:.4f} | Val Accuracy: {val_acc * 100:.2f}% | Weighted F1: {val_f1:.4f}\n")
+        avg_train_loss = total_train_loss / len(train_loader)
+        val_loss, val_wf1, val_mf1, val_report, val_cm = evaluate_model(
+            model, val_loader, device, ID2LABEL, ROLE_DISPLAY_NAMES
+        )
+        elapsed = time.time() - start_time
 
-        if val_acc > best_acc:
-            best_acc = val_acc
+        print(f"\n{'='*70}")
+        print(f" 📊 EPOCH {epoch}/{epochs} SUMMARY (Time: {elapsed:.1f}s)")
+        print(f"    Train Loss: {avg_train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        print(f"    Val Weighted F1: {val_wf1:.4f} | Val Macro F1: {val_mf1:.4f}")
+        print(f"\n 📋 VALIDATION CLASSIFICATION REPORT:")
+        print(val_report)
+        print(" 🔢 CONFUSION MATRIX (Rows: Actual, Cols: Predicted):")
+        print(f"    Labels: {[ID2LABEL[i] for i in range(NUM_LABELS)]}")
+        for r_idx, row in enumerate(val_cm):
+            print(f"    {ID2LABEL[r_idx]:15s}: {row}")
+        print(f"{'='*70}\n")
 
-    total_time = time.time() - start_time
+        # Save Best Model Checkpoint
+        if val_wf1 > best_val_f1:
+            best_val_f1 = val_wf1
+            best_epoch = epoch
+            print(f" 🌟 NEW BEST MODEL! (Weighted F1: {val_wf1:.4f}). Saving checkpoint to {OUTPUT_MODEL_DIR}...")
+            model.save_pretrained(OUTPUT_MODEL_DIR)
+            tokenizer.save_pretrained(OUTPUT_MODEL_DIR)
+
+            # Save training metadata
+            meta = {
+                "base_model": MODEL_ID,
+                "subfolder": subfolder,
+                "num_labels": NUM_LABELS,
+                "roles": ROLES,
+                "id2label": ID2LABEL,
+                "label2id": LABEL2ID,
+                "best_epoch": best_epoch,
+                "val_loss": val_loss,
+                "val_weighted_f1": val_wf1,
+                "val_macro_f1": val_mf1,
+            }
+            with open(os.path.join(OUTPUT_MODEL_DIR, "model_meta.json"), "w") as f:
+                json.dump(meta, f, indent=2)
+
+    # 11. Final Evaluation on Held-Out Test Set (Untouched during training)
+    print("\n" + "=" * 80)
+    print(" 🏁 FINAL EVALUATION ON UNTOUCHED HELD-OUT TEST SET (test.jsonl)")
     print("=" * 80)
-    print(f" 🎉 TRAINING COMPLETE in {total_time / 60:.2f} minutes!")
-    print(f" Final Validation Accuracy: {val_acc * 100:.2f}% (Best: {best_acc * 100:.2f}%)")
-    print(f" Final Validation Weighted F1: {val_f1:.4f}")
-    print("=" * 80)
 
-    # 8. Save Model and Tokenizer
-    output_dir = Path(OUTPUT_MODEL_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    model.save_pretrained(str(output_dir))
-    tokenizer.save_pretrained(str(output_dir))
-    print(f"\n ✅ Fine-tuned model adapter saved to: {output_dir.resolve()}\n")
+    # Load best checkpoint weights
+    print(f" Loading best checkpoint from Epoch {best_epoch} ({OUTPUT_MODEL_DIR})...")
+    best_model = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_ID,
+        subfolder=subfolder,
+        num_labels=NUM_LABELS,
+        id2label=ID2LABEL,
+        label2id=LABEL2ID,
+        ignore_mismatched_sizes=True,
+        trust_remote_code=True,
+        dtype=torch.float32,
+    )
+    best_model.config.pad_token_id = tokenizer.pad_token_id
+    eval_model = PeftModel.from_pretrained(best_model, OUTPUT_MODEL_DIR).to(device)
+
+    test_loss, test_wf1, test_mf1, test_report, test_cm = evaluate_model(
+        eval_model, test_loader, device, ID2LABEL, ROLE_DISPLAY_NAMES
+    )
+
+    print(f"\n 🏆 FINAL HELD-OUT TEST METRICS:")
+    print(f"    Test Loss:        {test_loss:.4f}")
+    print(f"    Test Weighted F1: {test_wf1:.4f}")
+    print(f"    Test Macro F1:    {test_mf1:.4f}")
+    print(f"\n 📋 TEST CLASSIFICATION REPORT:")
+    print(test_report)
+    print(" 🔢 TEST CONFUSION MATRIX (Rows: Actual, Cols: Predicted):")
+    for r_idx, row in enumerate(test_cm):
+        print(f"    {ID2LABEL[r_idx]:15s}: {row}")
+    print("=" * 80 + "\n")
 
 
 if __name__ == "__main__":

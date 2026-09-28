@@ -1,16 +1,14 @@
-"""Test script for OpenJev (AlexWortega/openjev) classification across 4 target roles."""
+"""Test script for OpenJev (AlexWortega/openjev) classification across 3 target roles."""
 
 import json
-import sqlite3
 from classification.jev_client import (
     OPENJEV_MODEL,
-    build_openjev_systemone_payload,
     classify_with_jev,
 )
 
 
 def test_jev_on_sample_news():
-    # 4 distinct test samples
+    # 3 distinct test samples
     samples = [
         {
             "title": "Scaling Law for Latent Reasoning in Large Multimodal Models",
@@ -23,11 +21,6 @@ def test_jev_on_sample_news():
             "source": "GitHub Trending / Engineering",
         },
         {
-            "title": "Agentic AI startup Cognition raises $175M Series B at $2B valuation led by Founders Fund",
-            "description": "The creator of Devin announces institutional funding round to scale commercial go-to-market enterprise sales.",
-            "source": "TechCrunch Startups & Venture",
-        },
-        {
             "title": "The 10 Best Ergonomic Standing Desks and Espresso Machines for Your Home Office (2026)",
             "description": "Our editors tested over 25 adjustable wooden desks and coffee grinders to find the best daily comfort gear.",
             "source": "Lifestyle & Consumer Review",
@@ -35,7 +28,7 @@ def test_jev_on_sample_news():
     ]
 
     print("=" * 80)
-    print(f" OPENJEV ({OPENJEV_MODEL}) - 4-ROLE ZERO-SHOT CLASSIFICATION BENCHMARK")
+    print(f" OPENJEV ({OPENJEV_MODEL}) - 3-ROLE CLASSIFICATION TEST")
     print("=" * 80)
 
     for i, item in enumerate(samples, 1):
@@ -50,14 +43,13 @@ def test_jev_on_sample_news():
         # Run Classification
         result = classify_with_jev(title, description, source)
 
-        print("\n    🎯 OPENJEV 4-ROLE DECISION:")
+        print("\n    🎯 OPENJEV 3-ROLE DECISION:")
         print(f"       Primary Role:        👉 {result.primary_role.upper()} (Confidence: {result.confidence * 100:.1f}%)")
         print("       Role Probabilities: ", json.dumps(result.role_probabilities))
         print("       Scores Breakdown:")
         print(f"         1. 🔬 AI Researcher:            {result.researcher_score * 100:.1f}%")
         print(f"         2. 🧑‍💻 AI & Software Engineer:   {result.engineer_score * 100:.1f}%")
-        print(f"         3. 🚀 Startup & Innovations:     {result.startup_score * 100:.1f}%")
-        print(f"         4. 🗑️ Noise / Irrelevant:       {result.noise_score * 100:.1f}%")
+        print(f"         3. 🗑️ Noise / Irrelevant:       {result.noise_score * 100:.1f}%")
         print("-" * 80)
 
 

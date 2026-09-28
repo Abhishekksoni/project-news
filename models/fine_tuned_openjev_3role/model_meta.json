@@ -1,0 +1,24 @@
+{
+  "base_model": "AlexWortega/openjev",
+  "subfolder": "qwen3.5-0.8b-nli-v2s-long",
+  "num_labels": 3,
+  "roles": [
+    "ai_researcher",
+    "ai_engineer",
+    "noise"
+  ],
+  "id2label": {
+    "0": "ai_researcher",
+    "1": "ai_engineer",
+    "2": "noise"
+  },
+  "label2id": {
+    "ai_researcher": 0,
+    "ai_engineer": 1,
+    "noise": 2
+  },
+  "best_epoch": 1,
+  "val_loss": 0.0058029268323552445,
+  "val_weighted_f1": 1.0,
+  "val_macro_f1": 1.0
+}
