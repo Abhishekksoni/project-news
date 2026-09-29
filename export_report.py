@@ -1,6 +1,12 @@
 import html
 from pathlib import Path
 import re
+import sys
+
+src_path = str(Path(__file__).resolve().parent / "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
 from storage.database import get_news_items, get_total_count, init_db
 
 
@@ -18,15 +24,21 @@ def clean_display_text(text: str) -> str:
     return text
 
 
-def normalize_role_3(role_raw: str | None) -> tuple[str, str]:
-    """Normalize role string to (role_key, role_label) across 3 roles."""
+def normalize_role_4(role_raw: str | None) -> tuple[str, str]:
+    """Normalize role string to (role_key, role_label) across 4 roles."""
     r = (role_raw or "ai_engineer").lower().strip()
-    if r in ("ai_researcher", "research", "researcher"):
-        return "ai_researcher", "🔬 AI & ML Research"
-    elif r in ("ai_engineer", "engineer", "engineering", "ai_ml", "startup_innovations", "startup"):
-        return "ai_engineer", "🧑‍💻 AI & Software Engineering"
+    if r in ("ai_researcher", "research", "researcher", "ai_ml_researcher"):
+        return "ai_researcher", "🔬 AI_ML Researcher"
+    elif r in ("ai_engineer", "engineer", "engineering", "software_ai_engineer"):
+        return "ai_engineer", "🧑‍💻 Software / AI Engineer"
+    elif r in ("startup_innovations", "startup", "startups", "innovation", "innovations"):
+        return "startup_innovations", "🚀 Innovation & Startups"
+    elif r in ("noise", "irrelevant", "offtopic", "off_topic", "noise_offtopic"):
+        return "noise", "🗑️ Noise / Off-Topic"
+    elif not r:
+        return "unclassified", "⏳ Unclassified"
     else:
-        return "noise", "🗑️ Noise / Irrelevant"
+        return r, r.replace("_", " ").title()
 
 
 def generate_html_report(output_path: str = "report.html") -> str:
@@ -48,9 +60,10 @@ def generate_html_report(output_path: str = "report.html") -> str:
         if item not in github_items and item not in hf_model_items
     ]
 
-    # Calculate 3-role distribution for unique articles
+    # Calculate 4-role distribution for unique articles
     researcher_count = 0
     engineer_count = 0
+    startup_count = 0
     noise_count = 0
     unique_articles_count = 0
 
@@ -60,14 +73,17 @@ def generate_html_report(output_path: str = "report.html") -> str:
             sources_set.add(item.source)
         if not item.is_duplicate:
             unique_articles_count += 1
-            role_key, _ = normalize_role_3(item.primary_role)
+            role_key, _ = normalize_role_4(item.primary_role)
             if role_key == "ai_researcher":
                 researcher_count += 1
             elif role_key == "ai_engineer":
                 engineer_count += 1
-            else:
+            elif role_key == "startup_innovations":
+                startup_count += 1
+            elif role_key == "noise":
                 noise_count += 1
 
+    curated_articles_count = researcher_count + engineer_count + startup_count
     sources = sorted(sources_set)
 
     html_content = f"""<!DOCTYPE html>
@@ -423,15 +439,13 @@ def generate_html_report(output_path: str = "report.html") -> str:
             color: var(--accent);
         }}
         .card-desc {{
-            font-size: 0.85rem;
+            font-size: 0.86rem;
             color: var(--text-muted);
             margin-bottom: 1rem;
             flex-grow: 1;
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            line-height: 1.45;
+            line-height: 1.5;
+            white-space: normal;
+            word-break: break-word;
         }}
 
         /* 4-Role Score Breakdown Box */
@@ -588,19 +602,20 @@ def generate_html_report(output_path: str = "report.html") -> str:
             <div class="title-row">
                 <h1>Project News</h1>
                 <div class="stats-bar">
-                    <div class="stat-badge">Articles: <span class="stat-value" style="color:#60a5fa;">{unique_articles_count}</span></div>
+                    <div class="stat-badge">Curated Articles: <span class="stat-value" style="color:#60a5fa;">{curated_articles_count}</span></div>
                     <div class="stat-badge">GitHub Repos: <span class="stat-value" style="color:#58a6ff;">{len(github_items)}</span></div>
                     <div class="stat-badge">HF Models: <span class="stat-value" style="color:#fbbf24;">{len(hf_model_items)}</span></div>
+                    <div class="stat-badge">Noise / Off-Topic: <span class="stat-value" style="color:#94a3b8;">{noise_count}</span></div>
                     <div class="stat-badge">Duplicates: <span class="stat-value" style="color:#f87171;">{stats['duplicates']}</span></div>
                 </div>
             </div>
-            <p>Intelligence platform powered by local OpenJev neural cross-encoder across 4 specialized roles.</p>
+            <p>Intelligence platform and aggregator across AI research, engineering, and startup innovations.</p>
         </div>
 
         <!-- Section Navigation Switcher -->
         <div class="section-nav">
             <button class="nav-btn active" onclick="switchSection('newsSection', this)">
-                📰 Curated News & Papers <span class="nav-badge">{unique_articles_count}</span>
+                📰 Curated News & Papers <span class="nav-badge">{curated_articles_count}</span>
             </button>
             <button class="nav-btn" onclick="switchSection('githubSection', this)">
                 🔥 Trending GitHub Repos <span class="nav-badge">{len(github_items)}</span>
@@ -612,19 +627,22 @@ def generate_html_report(output_path: str = "report.html") -> str:
 
         <!-- SECTION 1: CURATED NEWS & PAPERS -->
         <div id="newsSection" class="view-section active">
-            <!-- 3 Role Category Tabs -->
+            <!-- 4 Role Category Tabs -->
             <div class="role-tabs">
                 <button class="role-tab active" data-filter="all" onclick="selectRoleTab('all', this)">
-                    🌐 All Stories <span class="role-count">{unique_articles_count}</span>
+                    🌐 All Stories <span class="role-count">{curated_articles_count}</span>
                 </button>
                 <button class="role-tab tab-research" data-filter="ai_researcher" onclick="selectRoleTab('ai_researcher', this)">
-                    🔬 AI & ML Research <span class="role-count">{researcher_count}</span>
+                    🔬 AI_ML Researcher <span class="role-count">{researcher_count}</span>
                 </button>
                 <button class="role-tab tab-engineer" data-filter="ai_engineer" onclick="selectRoleTab('ai_engineer', this)">
-                    🧑‍💻 AI & Software Engineering <span class="role-count">{engineer_count}</span>
+                    🧑‍💻 Software / AI Engineer <span class="role-count">{engineer_count}</span>
+                </button>
+                <button class="role-tab tab-startup" data-filter="startup_innovations" onclick="selectRoleTab('startup_innovations', this)">
+                    🚀 Innovation & Startups <span class="role-count">{startup_count}</span>
                 </button>
                 <button class="role-tab tab-noise" data-filter="noise" onclick="selectRoleTab('noise', this)">
-                    🗑️ Noise <span class="role-count">{noise_count}</span>
+                    🗑️ Noise / Off-Topic <span class="role-count">{noise_count}</span>
                 </button>
             </div>
 
@@ -656,23 +674,24 @@ def generate_html_report(output_path: str = "report.html") -> str:
         date_str = item.published_at.strftime("%b %d, %Y") if item.published_at else "Recent"
         is_dup = "true" if item.is_duplicate else "false"
 
-        role_key, role_label = normalize_role_3(item.primary_role)
+        role_key, role_label = normalize_role_4(item.primary_role)
 
         res_score = getattr(item, 'researcher_score', 0.0) or 0.0
         eng_score = getattr(item, 'engineer_score', 0.0) or 0.0
-        noise_score = getattr(item, 'noise_score', 0.0) or 0.0
-        if noise_score == 0.0 and getattr(item, 'irrelevant_score', 0.0):
-            noise_score = getattr(item, 'irrelevant_score', 0.0)
+        startup_score = getattr(item, 'startup_score', 0.0) or 0.0
+        noise_score = getattr(item, 'noise_score', 0.0) or getattr(item, 'irrelevant_score', 0.0) or 0.0
 
         r_pct = int(res_score * 100)
         e_pct = int(eng_score * 100)
+        s_pct = int(startup_score * 100)
         n_pct = int(noise_score * 100)
-        conf_pct = int(item.confidence * 100) if item.confidence else max(r_pct, e_pct, n_pct)
+        conf_pct = int(item.confidence * 100) if item.confidence else max(r_pct, e_pct, s_pct, n_pct)
 
         img_tag = f'<img src="{html.escape(item.image_url)}" class="card-img" alt="Banner" onerror="this.style.display=\'none\'">' if item.image_url else ''
+        init_style = 'style="display: none;"' if role_key == "noise" else ''
 
         html_content += f"""
-            <div class="card" data-role="{role_key}" data-source="{source_esc.lower()}" data-duplicate="{is_dup}" data-text="{title_esc.lower()} {desc_esc.lower()} {source_esc.lower()} {author_esc.lower()}">
+            <div class="card" {init_style} data-role="{role_key}" data-source="{source_esc.lower()}" data-duplicate="{is_dup}" data-text="{title_esc.lower()} {desc_esc.lower()} {source_esc.lower()} {author_esc.lower()}">
                 <div class="card-img-wrap">
                     {img_tag}
                 </div>
@@ -685,28 +704,35 @@ def generate_html_report(output_path: str = "report.html") -> str:
                     <a href="{url_esc}" target="_blank" class="card-title" title="{title_esc}">{title_esc}</a>
                     <p class="card-desc">{desc_esc}</p>
 
-                    <!-- 3-Role Decision Scores -->
+                    <!-- 4-Role Decision Scores -->
                     <div class="scores-panel">
                         <div class="scores-title">
                             <span>Role Probabilities</span>
                             <span>Conf: {conf_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🔬 AI Research</span>
+                            <span class="score-label">🔬 AI_ML Research</span>
                             <div class="score-bar-wrap">
                                 <div class="score-bar-fill" style="width: {r_pct}%; background: var(--research-color);"></div>
                             </div>
                             <span class="score-num" style="color: var(--research-color);">{r_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🧑‍💻 AI Engineering</span>
+                            <span class="score-label">🧑‍💻 Software / AI</span>
                             <div class="score-bar-wrap">
                                 <div class="score-bar-fill" style="width: {e_pct}%; background: var(--engineer-color);"></div>
                             </div>
                             <span class="score-num" style="color: var(--engineer-color);">{e_pct}%</span>
                         </div>
                         <div class="score-row">
-                            <span class="score-label">🗑️ Noise</span>
+                            <span class="score-label">🚀 Startups</span>
+                            <div class="score-bar-wrap">
+                                <div class="score-bar-fill" style="width: {s_pct}%; background: var(--startup-color);"></div>
+                            </div>
+                            <span class="score-num" style="color: var(--startup-color);">{s_pct}%</span>
+                        </div>
+                        <div class="score-row">
+                            <span class="score-label">🗑️ Noise / Off-Topic</span>
                             <div class="score-bar-wrap">
                                 <div class="score-bar-fill" style="width: {n_pct}%; background: var(--noise-color);"></div>
                             </div>
@@ -840,7 +866,9 @@ def generate_html_report(output_path: str = "report.html") -> str:
                 const isDup = card.getAttribute('data-duplicate');
                 const cardText = card.getAttribute('data-text');
 
-                const matchesRole = (currentRole === 'all') || (cardRole === currentRole);
+                const matchesRole = (currentRole === 'all') 
+                    ? (cardRole !== 'noise') 
+                    : (cardRole === currentRole);
                 const matchesSearch = !search || cardText.includes(search);
                 const matchesSource = !source || cardSource === source;
                 
@@ -855,6 +883,8 @@ def generate_html_report(output_path: str = "report.html") -> str:
                 }
             });
         }
+
+        window.addEventListener('DOMContentLoaded', filterCards);
     </script>
 </body>
 </html>

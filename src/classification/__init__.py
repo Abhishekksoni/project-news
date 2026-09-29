@@ -1,7 +1,6 @@
 from .jev_client import (
     JevClassificationResult,
-    OPENJEV_MODEL,
-    build_openjev_systemone_payload,
+    JEV_MODEL,
     classify_with_jev,
 )
 from .taxonomy import (
@@ -10,20 +9,19 @@ from .taxonomy import (
     ROLE_CRITERIA,
     ROLE_DISPLAY_NAMES,
     ROLE_HYPOTHESES,
+    ROLE_SYSTEM_PROMPT,
     ROLES,
 )
 
 __all__ = [
     "JevClassificationResult",
-    "OPENJEV_MODEL",
+    "JEV_MODEL",
     "ROLE_CRITERIA",
     "ROLE_DISPLAY_NAMES",
     "ROLE_HYPOTHESES",
+    "ROLE_SYSTEM_PROMPT",
     "ROLES",
     "LABEL2ID",
     "ID2LABEL",
-    "build_openjev_systemone_payload",
     "classify_with_jev",
 ]
-
-

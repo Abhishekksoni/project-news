@@ -26,6 +26,14 @@ async def fetch_alphaxiv(
             categories_str = ", ".join(paper.topics) if paper.topics else "ai_research"
             img = paper.image_url if paper.image_url else ALPHAXIV_FALLBACK_IMAGE
 
+            raw_desc = paper.summary or paper.abstract or ""
+            if raw_desc:
+                clean_desc = raw_desc.strip()
+                if len(clean_desc) > 350:
+                    clean_desc = clean_desc[:350].rsplit(" ", 1)[0] + "..."
+            else:
+                clean_desc = None
+
             item = NewsItem(
                 id=f"alphaxiv_{paper.paper_id}",
                 title=paper.title,
@@ -34,7 +42,7 @@ async def fetch_alphaxiv(
                 source_type="research",
                 published_at=paper.publication_date,
                 author=authors_str,
-                description=paper.summary or paper.abstract or None,
+                description=clean_desc,
                 category=categories_str,
                 image_url=img,
                 collected_at=datetime.now(UTC),

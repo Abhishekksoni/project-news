@@ -31,110 +31,64 @@ FEEDS = [
     {
         "name": "MIT News - AI",
         "url": "https://news.mit.edu/rss/topic/artificial-intelligence2",
-        "category": "ai_research",
     },
     {
         "name": "Berkeley AI Research (BAIR)",
         "url": "https://bair.berkeley.edu/blog/feed.xml",
-        "category": "ai_research",
     },
     {
         "name": "Hugging Face Blog",
         "url": "https://huggingface.co/blog/feed.xml",
-        "category": "ai_research",
     },
     {
         "name": "OpenAI Blog",
         "url": "https://openai.com/news/rss.xml",
-        "category": "ai_research",
     },
     {
         "name": "Google AI Blog",
         "url": "https://blog.google/technology/ai/rss/",
-        "category": "ai_research",
     },
     {
         "name": "Microsoft Research Blog",
         "url": "https://www.microsoft.com/en-us/research/blog/feed/",
-        "category": "ai_research",
     },
     {
         "name": "KDnuggets",
         "url": "https://www.kdnuggets.com/feed",
-        "category": "machine_learning",
     },
 
     # 2. TechCrunch & VentureBeat AI Feeds
     {
         "name": "TechCrunch AI",
         "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
-        "category": "ai_engineering",
-    },
-    {
-        "name": "VentureBeat AI & Tech",
-        "url": "https://venturebeat.com/feed/",
-        "category": "ai_engineering",
     },
 
     # 3. Top AI Engineering, Developer & Cloud Feeds
     {
-        "name": "Claude & Anthropic Updates",
-        "url": "https://news.google.com/rss/search?q=%22Anthropic%22+OR+%22Claude+3.5%22+OR+%22Claude+3.7%22+OR+%22Claude+Code%22+(AI+OR+model+OR+research)&hl=en-US&gl=US&ceid=US:en",
-        "category": "ai_engineering",
-    },
-    {
         "name": "NVIDIA Developer Blog",
         "url": "https://developer.nvidia.com/blog/feed",
-        "category": "ai_engineering",
     },
     {
         "name": "AWS Machine Learning Blog",
         "url": "https://aws.amazon.com/blogs/machine-learning/feed/",
-        "category": "ai_engineering",
     },
     {
         "name": "Simon Willison Weblog",
         "url": "https://simonwillison.net/atom/entries/",
-        "category": "ai_engineering",
-    },
-    {
-        "name": "Chip Huyen AI Blog",
-        "url": "https://huyenchip.com/feed.xml",
-        "category": "ai_engineering",
     },
     {
         "name": "Latent Space (Substack)",
         "url": "https://www.latent.space/feed",
-        "category": "ai_engineering",
     },
     {
         "name": "Ahead of AI (Sebastian Raschka)",
         "url": "https://magazine.sebastianraschka.com/feed",
-        "category": "ai_research",
     },
 
     # 4. Medium AI / ML Feeds
     {
         "name": "Towards Data Science (Medium)",
         "url": "https://towardsdatascience.com/feed",
-        "category": "data_science",
-    },
-    {
-        "name": "Medium AI Feed",
-        "url": "https://medium.com/feed/tag/artificial-intelligence",
-        "category": "ai_engineering",
-    },
-    {
-        "name": "Medium ML Feed",
-        "url": "https://medium.com/feed/tag/machine-learning",
-        "category": "machine_learning",
-    },
-
-    # 5. Top IITs DeepTech Research
-    {
-        "name": "Top IITs Research (Madras/Bombay/Delhi/Kanpur)",
-        "url": "https://news.google.com/rss/search?q=%22IIT+Madras%22+OR+%22IIT+Bombay%22+OR+%22IIT+Delhi%22+OR+%22IIT+Kanpur%22+(research+OR+patent+OR+technology)&hl=en-IN&gl=IN&ceid=IN:en",
-        "category": "iit_research",
     },
 ]
 
@@ -147,7 +101,7 @@ def fetch_all_rss(limit_per_feed: int | None = None):
                 fetch_rss,
                 feed_url=f["url"],
                 source_name=f["name"],
-                category=f["category"],
+                category=f.get("category"),
                 limit=limit_per_feed,
                 max_age_days=7,
             )
@@ -208,29 +162,51 @@ def main():
     print(f"   Unique Articles:    {len(uniques)}")
     print(f"   Duplicate Articles: {len(duplicates)}\n")
 
-    # Step 3: Fast 3-Role Decision Classification (OpenJev Local/Hosted Inference)
-    print("3. Scoring articles across 3 roles using OpenJev model (AI Research, AI Engineering, Noise)...")
+    # Step 3: Fast 4-Role Decision Classification (Jev AI with DB Cache)
+    print("3. Checking DB cache & scoring new articles across 4 roles using Jev AI...")
     from classification.jev_client import classify_with_jev
+    from storage.database import get_classified_items_map
 
+    cached_classifications = get_classified_items_map()
+    total_unique = sum(1 for item in raw_items if not item.is_duplicate)
+    new_to_score = sum(
+        1 for item in raw_items if not item.is_duplicate and item.id not in cached_classifications
+    )
+    already_cached = total_unique - new_to_score
 
-    total_to_score = sum(1 for item in raw_items if not item.is_duplicate)
-    scored_count = 0
+    print(f"   Total Unique Articles:       {total_unique}")
+    print(f"   Already in DB (Cached):      {already_cached} (0 API calls, $0.00)")
+    print(f"   Brand New Items to Classify: {new_to_score}\n")
+
+    cached_count = 0
+    new_scored_count = 0
+
     for item in raw_items:
         if not item.is_duplicate:
-            res = classify_with_jev(item.title, item.description or "", item.source)
-            item.primary_role = res.primary_role
-            item.confidence = res.confidence
-            item.aiml_score = res.aiml_score
-            item.startup_score = res.startup_score
-            item.noise_score = res.noise_score
-            item.researcher_score = res.researcher_score
-            item.engineer_score = res.engineer_score
-            item.irrelevant_score = res.irrelevant_score
-            scored_count += 1
-            if scored_count % 25 == 0 or scored_count == total_to_score:
-                print(f"   Classified {scored_count}/{total_to_score} articles on Metal GPU...")
-    print(f"   Completed classification for all {total_to_score} articles.\n")
+            if item.id in cached_classifications:
+                cached = cached_classifications[item.id]
+                item.primary_role = cached["primary_role"]
+                item.confidence = cached["confidence"]
+                item.researcher_score = cached["researcher_score"]
+                item.engineer_score = cached["engineer_score"]
+                item.startup_score = cached["startup_score"]
+                item.noise_score = cached["noise_score"]
+                item.irrelevant_score = cached["irrelevant_score"]
+                cached_count += 1
+            else:
+                res = classify_with_jev(item.title, item.description or "", item.source)
+                item.primary_role = res.primary_role
+                item.confidence = res.confidence
+                item.researcher_score = res.researcher_score
+                item.engineer_score = res.engineer_score
+                item.startup_score = res.startup_score
+                item.noise_score = res.noise_score
+                item.irrelevant_score = res.noise_score
+                new_scored_count += 1
+                if new_scored_count % 25 == 0 or new_scored_count == new_to_score:
+                    print(f"   Classified {new_scored_count}/{new_to_score} new articles with Jev AI...")
 
+    print(f"   Completed: {cached_count} loaded from DB cache, {new_scored_count} newly classified with Jev AI.\n")
 
     # Step 4: Save to SQLite
     print("4. Persisting articles into SQLite database...")
@@ -253,7 +229,8 @@ def main():
     print("=" * 70)
     for i, item in enumerate(unique_db_items, start=1):
         print(f"\n{i}. [{item.source}] {item.title}")
-        print(f"   Role: {item.primary_role} (Conf: {int(item.confidence * 100)}%) | Category: {item.category}")
+        if item.primary_role:
+            print(f"   Role: {item.primary_role} (Conf: {int(item.confidence * 100)}%)")
         print(f"   URL: {item.url}")
         if item.published_at:
             print(f"   Date: {item.published_at.strftime('%Y-%m-%d %H:%M')}")

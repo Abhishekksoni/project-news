@@ -196,6 +196,9 @@ async def _fetch_single_story(
 
             image_url = ext_image if ext_image else HN_FALLBACK_IMAGE
 
+            if description and len(description) > 350:
+                description = description[:350].rsplit(" ", 1)[0] + "..."
+
             return NewsItem(
                 id=f"hn_{story_id}",
                 title=title,

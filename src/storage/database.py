@@ -3,6 +3,7 @@
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from models.news import NewsItem
 
@@ -43,6 +44,7 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
                 researcher_score REAL DEFAULT 0.0,
                 engineer_score REAL DEFAULT 0.0,
                 startup_score REAL DEFAULT 0.0,
+                noise_score REAL DEFAULT 0.0,
                 irrelevant_score REAL DEFAULT 0.0,
                 collected_at TEXT NOT NULL
             )
@@ -79,6 +81,10 @@ def init_db(db_path: Path | str = DEFAULT_DB_PATH) -> None:
         if "startup_score" not in columns:
             cursor.execute(
                 "ALTER TABLE news_items ADD COLUMN startup_score REAL DEFAULT 0.0"
+            )
+        if "noise_score" not in columns:
+            cursor.execute(
+                "ALTER TABLE news_items ADD COLUMN noise_score REAL DEFAULT 0.0"
             )
         if "irrelevant_score" not in columns:
             cursor.execute(
@@ -117,8 +123,8 @@ def save_news_item(item: NewsItem, db_path: Path | str = DEFAULT_DB_PATH) -> boo
                 id, title, url, source, source_type,
                 published_at, author, description, category, image_url,
                 is_duplicate, duplicate_of, primary_role, confidence,
-                researcher_score, engineer_score, startup_score, irrelevant_score, collected_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                researcher_score, engineer_score, startup_score, noise_score, irrelevant_score, collected_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.id,
@@ -138,7 +144,8 @@ def save_news_item(item: NewsItem, db_path: Path | str = DEFAULT_DB_PATH) -> boo
                 item.researcher_score,
                 item.engineer_score,
                 item.startup_score,
-                item.irrelevant_score,
+                getattr(item, 'noise_score', 0.0) or getattr(item, 'irrelevant_score', 0.0),
+                getattr(item, 'noise_score', 0.0) or getattr(item, 'irrelevant_score', 0.0),
                 item.collected_at.isoformat(),
             ),
         )
@@ -177,7 +184,8 @@ def save_news_items(
             item.researcher_score,
             item.engineer_score,
             item.startup_score,
-            item.irrelevant_score,
+            getattr(item, 'noise_score', 0.0) or getattr(item, 'irrelevant_score', 0.0),
+            getattr(item, 'noise_score', 0.0) or getattr(item, 'irrelevant_score', 0.0),
             item.collected_at.isoformat(),
         )
         for item in items
@@ -191,8 +199,8 @@ def save_news_items(
                 id, title, url, source, source_type,
                 published_at, author, description, category, image_url,
                 is_duplicate, duplicate_of, primary_role, confidence,
-                researcher_score, engineer_score, startup_score, irrelevant_score, collected_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                researcher_score, engineer_score, startup_score, noise_score, irrelevant_score, collected_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             records,
         )
@@ -214,6 +222,9 @@ def _row_to_news_item(row: sqlite3.Row) -> NewsItem:
     )
 
     columns = row.keys()
+    noise_val = float(row["noise_score"]) if "noise_score" in columns and row["noise_score"] is not None else (
+        float(row["irrelevant_score"]) if "irrelevant_score" in columns and row["irrelevant_score"] is not None else 0.0
+    )
 
     return NewsItem(
         id=row["id"],
@@ -233,7 +244,8 @@ def _row_to_news_item(row: sqlite3.Row) -> NewsItem:
         researcher_score=float(row["researcher_score"]) if "researcher_score" in columns and row["researcher_score"] is not None else 0.0,
         engineer_score=float(row["engineer_score"]) if "engineer_score" in columns and row["engineer_score"] is not None else 0.0,
         startup_score=float(row["startup_score"]) if "startup_score" in columns and row["startup_score"] is not None else 0.0,
-        irrelevant_score=float(row["irrelevant_score"]) if "irrelevant_score" in columns and row["irrelevant_score"] is not None else 0.0,
+        noise_score=noise_val,
+        irrelevant_score=noise_val,
         collected_at=collected_at,
     )
 
@@ -324,3 +336,39 @@ def get_total_count(db_path: Path | str = DEFAULT_DB_PATH) -> dict[str, int]:
             "unique": total - duplicates,
             "duplicates": duplicates,
         }
+
+
+def get_classified_items_map(
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> dict[str, dict[str, Any]]:
+    """
+    Retrieve a mapping of previously classified news item IDs and their cached decision scores.
+    Enables incremental ingestion so existing articles are not re-sent to Jev AI.
+    """
+    init_db(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, primary_role, confidence, researcher_score, engineer_score, startup_score, noise_score, irrelevant_score
+            FROM news_items
+            WHERE primary_role IS NOT NULL AND primary_role != ''
+            """
+        )
+        rows = cursor.fetchall()
+        result: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            columns = row.keys()
+            noise_val = float(row["noise_score"]) if "noise_score" in columns and row["noise_score"] is not None else (
+                float(row["irrelevant_score"]) if "irrelevant_score" in columns and row["irrelevant_score"] is not None else 0.0
+            )
+            result[row["id"]] = {
+                "primary_role": row["primary_role"],
+                "confidence": float(row["confidence"]) if row["confidence"] is not None else 0.0,
+                "researcher_score": float(row["researcher_score"]) if row["researcher_score"] is not None else 0.0,
+                "engineer_score": float(row["engineer_score"]) if row["engineer_score"] is not None else 0.0,
+                "startup_score": float(row["startup_score"]) if row["startup_score"] is not None else 0.0,
+                "noise_score": noise_val,
+                "irrelevant_score": noise_val,
+            }
+        return result

@@ -154,9 +154,8 @@ def _extract_image_url(
             if src.startswith("http"):
                 return src
 
-    # 5. Scrape og:image only for primary blogs where OG provides high-res banners
-    primary_og_domains = ("openai.com", "berkeley.edu", "latent.space", "simonwillison.net", "huyenchip.com", "sebastianraschka.com")
-    if article_url and any(d in article_url for d in primary_og_domains):
+    # 5. Scrape OpenGraph og:image from article URL (TechCrunch, blogs, research labs)
+    if article_url and article_url.startswith("http"):
         og_img = _fetch_og_image(article_url)
         if og_img:
             return og_img
@@ -224,6 +223,9 @@ def fetch_rss(
         # If description is identical to title (common in Google News RSS), use snippet
         if clean_description and clean_description.lower() == title.lower():
             clean_description = f"Latest update on {title} from {source_name}."
+
+        if clean_description and len(clean_description) > 350:
+            clean_description = clean_description[:350].rsplit(" ", 1)[0] + "..."
 
         # Extract image: media RSS -> embedded img -> OpenGraph -> fallback
         image_url = _extract_image_url(entry, combined_html, url, category)

@@ -180,6 +180,9 @@ async def fetch_hf_trending_models(limit: int | None = None) -> list[NewsItem]:
                 else:
                     final_desc = f"Trending open-weights model on Hugging Face Hub with {stats_line}."
 
+                if final_desc and len(final_desc) > 350:
+                    final_desc = final_desc[:350].rsplit(" ", 1)[0] + "..."
+
                 item_id = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
 
                 news_items.append(

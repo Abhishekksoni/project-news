@@ -57,6 +57,8 @@ def fetch_github_trending(limit: int | None = None) -> list[NewsItem]:
                 stars_today = stars_elem.get_text(strip=True) if stars_elem else ""
 
                 full_desc = f"{desc_text} ({stars_today})" if stars_today else desc_text
+                if full_desc and len(full_desc) > 350:
+                    full_desc = full_desc[:350].rsplit(" ", 1)[0] + "..."
                 author = repo_path.split("/")[0] if "/" in repo_path else "GitHub"
 
                 item_id = hashlib.sha256(repo_url.encode("utf-8")).hexdigest()[:16]
