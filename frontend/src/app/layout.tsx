@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Orbitron, Rajdhani, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { PostHogProvider } from "./providers";
 
 const orbitron = Orbitron({
   subsets: ["latin"],
@@ -38,7 +39,7 @@ export default function RootLayout({
       className={`${orbitron.variable} ${rajdhani.variable} ${jetbrainsMono.variable} dark`}
     >
       <body className="bg-[#030712] text-slate-100 antialiased min-h-screen">
-        {children}
+        <PostHogProvider>{children}</PostHogProvider>
       </body>
     </html>
   );

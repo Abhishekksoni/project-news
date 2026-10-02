@@ -10,6 +10,7 @@ import {
   ArrowUpDown,
 } from "lucide-react";
 import { StatsRecord } from "@/lib/db";
+import { trackEvent } from "@/app/providers";
 
 interface TelemetryBarProps {
   stats: StatsRecord | null;
@@ -82,7 +83,10 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
             </div>
             <select
               value={selectedSource}
-              onChange={(e) => onSelectSource(e.target.value)}
+              onChange={(e) => {
+                trackEvent("source_filter_changed", { source: e.target.value });
+                onSelectSource(e.target.value);
+              }}
               className="w-full dark:bg-black/60 bg-stone-100 border dark:border-white/15 border-stone-300 rounded-xl pl-7 sm:pl-8 md:pl-24 pr-6 sm:pr-8 py-2 sm:py-2.5 dark:text-gray-200 text-stone-800 text-[11px] sm:text-xs font-mono focus:outline-none focus:border-[#e27d42] hover:border-[#e27d42]/50 cursor-pointer truncate shadow-sm transition-all appearance-none"
             >
               <option value="all">ALL SOURCES ({total})</option>
@@ -107,7 +111,10 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
             </div>
             <select
               value={activeSort}
-              onChange={(e) => onSelectSort(e.target.value)}
+              onChange={(e) => {
+                trackEvent("sort_order_changed", { sort: e.target.value });
+                onSelectSort(e.target.value);
+              }}
               className="w-full dark:bg-black/60 bg-stone-100 border dark:border-white/15 border-stone-300 rounded-xl pl-7 sm:pl-8 md:pl-20 pr-6 sm:pr-8 py-2 sm:py-2.5 dark:text-gray-200 text-stone-800 text-[11px] sm:text-xs font-mono focus:outline-none focus:border-[#e27d42] hover:border-[#e27d42]/50 cursor-pointer truncate shadow-sm transition-all appearance-none"
             >
               <option value="newest">LATEST / NEWEST</option>

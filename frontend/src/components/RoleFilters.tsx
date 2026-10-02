@@ -9,6 +9,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { soundFX } from "@/lib/sounds";
+import { trackEvent } from "@/app/providers";
 
 export interface RoleConfig {
   id: string;
@@ -99,6 +100,7 @@ export const RoleFilters: React.FC<RoleFiltersProps> = ({
               key={role.id}
               onClick={() => {
                 soundFX.playBlip(isActive ? 500 : 780);
+                trackEvent("role_filter_changed", { role: role.id, name: role.name });
                 onSelectRole(role.id);
               }}
               className={`relative flex flex-col p-4 rounded-xl border text-left transition-all duration-300 cursor-pointer overflow-hidden shadow-sm ${

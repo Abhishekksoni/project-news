@@ -13,6 +13,7 @@ import {
 import { NewsItemRecord } from "@/lib/db";
 import { ArticleImage } from "@/components/ArticleImage";
 import { soundFX } from "@/lib/sounds";
+import { trackEvent } from "@/app/providers";
 
 interface NewsCardProps {
   item: NewsItemRecord;
@@ -148,6 +149,13 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     <div
       onClick={() => {
         soundFX.playBlip(750);
+        trackEvent("article_clicked", {
+          id: item.id,
+          title: item.title,
+          source: item.source,
+          role: item.primary_role,
+          url: item.url,
+        });
         window.open(item.url, "_blank", "noopener,noreferrer");
       }}
       className="group relative w-full flex flex-col justify-between rounded-xl sm:rounded-2xl dark:bg-[#0c070a] bg-white border dark:border-white/10 border-stone-200/90 dark:hover:border-[#e27d42]/60 hover:border-[#e27d42] dark:hover:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.9),0_0_25px_-5px_rgba(226,125,66,0.25)] hover:shadow-[0_20px_35px_-10px_rgba(226,125,66,0.15),0_0_15px_rgba(0,0,0,0.05)] transition-all duration-300 cursor-pointer overflow-hidden backdrop-blur-xl shadow-sm"
