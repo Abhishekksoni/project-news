@@ -205,7 +205,55 @@ def save_news_items(
             records,
         )
         conn.commit()
-        return cursor.rowcount if cursor.rowcount != -1 else len(items)
+        inserted = cursor.rowcount if cursor.rowcount != -1 else len(items)
+
+    # Automatically sync items to Supabase cloud database if configured
+    try:
+        import os
+        import requests
+        supabase_url = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "").rstrip("/")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
+        if supabase_url and supabase_key:
+            rest_url = f"{supabase_url}/rest/v1/news_items"
+            headers = {
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {supabase_key}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates"
+            }
+            sb_records = [
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "url": item.url,
+                    "source": item.source,
+                    "source_type": item.source_type,
+                    "published_at": item.published_at.isoformat() if item.published_at else None,
+                    "author": item.author,
+                    "description": item.description,
+                    "category": item.category,
+                    "image_url": item.image_url,
+                    "is_duplicate": bool(item.is_duplicate),
+                    "duplicate_of": item.duplicate_of,
+                    "primary_role": item.primary_role,
+                    "confidence": float(item.confidence) if item.confidence is not None else 0.0,
+                    "researcher_score": float(item.researcher_score) if item.researcher_score is not None else 0.0,
+                    "engineer_score": float(item.engineer_score) if item.engineer_score is not None else 0.0,
+                    "startup_score": float(item.startup_score) if item.startup_score is not None else 0.0,
+                    "noise_score": float(getattr(item, 'noise_score', 0.0) or getattr(item, 'irrelevant_score', 0.0)),
+                    "irrelevant_score": float(getattr(item, 'noise_score', 0.0) or getattr(item, 'irrelevant_score', 0.0)),
+                    "collected_at": item.collected_at.isoformat() if item.collected_at else datetime.now(UTC).isoformat(),
+                }
+                for item in items
+            ]
+            # Chunk in batches of 50
+            for i in range(0, len(sb_records), 50):
+                chunk = sb_records[i:i + 50]
+                requests.post(rest_url, headers=headers, json=chunk, timeout=10)
+    except Exception as sb_err:
+        print(f"   [Supabase Sync Warning]: {sb_err}")
+
+    return inserted
 
 
 def _row_to_news_item(row: sqlite3.Row) -> NewsItem:

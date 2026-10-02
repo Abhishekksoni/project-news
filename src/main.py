@@ -183,7 +183,22 @@ def main():
 
     for item in raw_items:
         if not item.is_duplicate:
-            if item.id in cached_classifications:
+            # Hugging Face Model Hub and GitHub Repos have dedicated streams and don't need Jev classification
+            is_dedicated = (
+                item.source in ["Hugging Face Model Hub", "GitHub Trending (Python & AI)"]
+                or "github" in item.source.lower()
+                or "model hub" in item.source.lower()
+            )
+            if is_dedicated:
+                item.primary_role = "hf_model" if "model hub" in item.source.lower() or "hugging" in item.source.lower() else "github_repo"
+                item.confidence = 1.0
+                item.researcher_score = 0.0
+                item.engineer_score = 0.0
+                item.startup_score = 0.0
+                item.noise_score = 0.0
+                item.irrelevant_score = 0.0
+                cached_count += 1
+            elif item.id in cached_classifications:
                 cached = cached_classifications[item.id]
                 item.primary_role = cached["primary_role"]
                 item.confidence = cached["confidence"]

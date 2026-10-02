@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --bg-obsidian: #070406;
+    --bg-surface: #0e070a;
+    --bg-card: rgba(18, 10, 14, 0.85);
+    
+    --mars-sand: #e27d42;
+    --mars-amber: #f59e0b;
+    --mars-copper: #c25e24;
+    --orbit-cyan: #38bdf8;
+    --orbit-emerald: #34d399;
+    --orbit-purple: #c084fc;
+    
+    --border-hairline: rgba(255, 255, 255, 0.09);
+    --border-amber-glow: rgba(226, 125, 66, 0.3);
+  }
+
+  html.dark body {
+    background-color: var(--bg-obsidian);
+    color: #f1f5f9;
+    font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+
+  html.light body {
+    background-color: #f6f2ec;
+    color: #18181b;
+    font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Dark Mode Grid Background */
+html.dark .orbita-grid-bg {
+  background-color: #060305;
+  background-image: 
+    radial-gradient(ellipse 90% 60% at 50% -10%, rgba(226, 125, 66, 0.15), transparent 70%),
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 100% 100%, 48px 48px, 48px 48px;
+  background-position: 0 0, -1px -1px, -1px -1px;
+}
+
+/* Light Mode Grid Background */
+html.light .orbita-grid-bg {
+  background-color: #f6f2ec;
+  background-image: 
+    radial-gradient(ellipse 90% 60% at 50% -10%, rgba(226, 125, 66, 0.12), transparent 70%),
+    linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  background-size: 100% 100%, 48px 48px, 48px 48px;
+  background-position: 0 0, -1px -1px, -1px -1px;
+}
+
+/* Hairline Grid Axis Line with Crosshairs */
+.axis-hairline {
+  position: relative;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(226, 125, 66, 0.5) 0%, rgba(255, 255, 255, 0.2) 50%, rgba(226, 125, 66, 0.5) 100%);
+}
+
+html.light .axis-hairline {
+  background: linear-gradient(90deg, rgba(226, 125, 66, 0.6) 0%, rgba(0, 0, 0, 0.15) 50%, rgba(226, 125, 66, 0.6) 100%);
+}
+
+.axis-hairline::after {
+  content: "✦";
+  position: absolute;
+  right: 18%;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #fff;
+  font-size: 11px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8), 0 0 15px rgba(226, 125, 66, 0.6);
+}
+
+html.light .axis-hairline::after {
+  color: #c25e24;
+  text-shadow: 0 0 8px rgba(226, 125, 66, 0.6);
+}
+
+/* CRT Scanlines Overlay */
+.scanlines {
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.25) 50%
+  ), linear-gradient(
+    90deg,
+    rgba(255, 100, 0, 0.02),
+    rgba(0, 200, 255, 0.01),
+    rgba(255, 50, 0, 0.02)
+  );
+  background-size: 100% 4px, 6px 100%;
+  pointer-events: none;
+}
+
+/* Hide Scrollbar Globally while preserving smooth scrolling */
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+* {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
