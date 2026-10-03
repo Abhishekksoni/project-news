@@ -9,6 +9,11 @@ import {
   Globe,
   Box,
   GitBranch,
+  Microscope,
+  Cpu,
+  Rocket,
+  ShieldAlert,
+  Activity,
 } from "lucide-react";
 import { NewsItemRecord } from "@/lib/db";
 import { ArticleImage } from "@/components/ArticleImage";
@@ -81,14 +86,16 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     if (isModelHub) {
       return {
         label: "HF MODEL",
-        badge: "dark:bg-amber-500/20 dark:text-[#f59e0b] dark:border-[#e27d42]/50 bg-amber-100 text-amber-900 border-amber-300",
+        icon: <Box className="w-3 h-3 text-[#f59e0b] flex-shrink-0" />,
+        badge: "dark:bg-amber-950/90 bg-amber-100 text-amber-800 dark:text-[#f59e0b] border-[#e27d42]/70 dark:border-[#e27d42]/80 shadow-[0_0_12px_rgba(226,125,66,0.25)]",
         barColor: "bg-[#e27d42]",
       };
     }
     if (isGithubRepo) {
       return {
         label: "GITHUB REPO",
-        badge: "dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40 bg-emerald-100 text-emerald-800 border-emerald-300",
+        icon: <GitBranch className="w-3 h-3 text-emerald-500 dark:text-emerald-400 flex-shrink-0" />,
+        badge: "dark:bg-emerald-950/90 bg-emerald-100 text-emerald-800 dark:text-emerald-300 border-emerald-500/60 dark:border-emerald-400/70 shadow-[0_0_12px_rgba(16,185,129,0.25)]",
         barColor: "bg-emerald-500",
       };
     }
@@ -96,31 +103,36 @@ export const NewsCard: React.FC<NewsCardProps> = ({
       case "ai_researcher":
         return {
           label: "RESEARCHER",
-          badge: "dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40 bg-cyan-100 text-cyan-800 border-cyan-300",
+          icon: <Microscope className="w-3 h-3 text-cyan-600 dark:text-cyan-400 flex-shrink-0" />,
+          badge: "dark:bg-cyan-950/90 bg-cyan-100 text-cyan-800 dark:text-cyan-300 border-cyan-500/60 dark:border-cyan-400/70 shadow-[0_0_12px_rgba(6,182,212,0.25)]",
           barColor: "bg-cyan-500",
         };
       case "ai_engineer":
         return {
-          label: "ENGINEER",
-          badge: "dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40 bg-emerald-100 text-emerald-800 border-emerald-300",
+          label: "AI ENGINEER",
+          icon: <Cpu className="w-3 h-3 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />,
+          badge: "dark:bg-emerald-950/90 bg-emerald-100 text-emerald-800 dark:text-emerald-300 border-emerald-500/60 dark:border-emerald-400/70 shadow-[0_0_12px_rgba(16,185,129,0.25)]",
           barColor: "bg-emerald-500",
         };
       case "startup_innovations":
         return {
           label: "STARTUPS",
-          badge: "dark:bg-[#e27d42]/25 dark:text-[#f59e0b] dark:border-[#e27d42]/60 bg-amber-100 text-amber-900 border-amber-300",
+          icon: <Rocket className="w-3 h-3 text-[#c25e24] dark:text-[#f59e0b] flex-shrink-0" />,
+          badge: "dark:bg-amber-950/90 bg-amber-100 text-amber-800 dark:text-[#f59e0b] border-[#e27d42]/70 dark:border-[#e27d42]/80 shadow-[0_0_12px_rgba(226,125,66,0.25)]",
           barColor: "bg-[#e27d42]",
         };
       case "noise":
         return {
           label: "NOISE",
-          badge: "dark:bg-purple-500/20 dark:text-purple-300 dark:border-purple-500/40 bg-purple-100 text-purple-800 border-purple-300",
+          icon: <ShieldAlert className="w-3 h-3 text-purple-600 dark:text-purple-400 flex-shrink-0" />,
+          badge: "dark:bg-purple-950/90 bg-purple-100 text-purple-800 dark:text-purple-300 border-purple-500/60 dark:border-purple-400/70 shadow-[0_0_12px_rgba(168,85,247,0.25)]",
           barColor: "bg-purple-500",
         };
       default:
         return {
           label: "SIGNAL",
-          badge: "dark:bg-white/10 dark:text-gray-300 dark:border-white/15 bg-stone-100 text-stone-700 border-stone-300",
+          icon: <Activity className="w-3 h-3 text-stone-500 dark:text-gray-400 flex-shrink-0" />,
+          badge: "dark:bg-white/10 bg-stone-100 text-stone-800 dark:text-gray-300 border-stone-300 dark:border-white/20 shadow-sm",
           barColor: "bg-stone-400",
         };
     }
@@ -172,22 +184,16 @@ export const NewsCard: React.FC<NewsCardProps> = ({
 
           {/* Floating Source & Role Badges (Always Visible on Image) */}
           <div className="absolute top-2 left-2 right-2 sm:top-3 sm:left-3 sm:right-3 flex items-center justify-between gap-1.5 z-10 pointer-events-none">
-            <span className="px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/20 text-white font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase truncate max-w-[110px] sm:max-w-[170px] shadow-md flex items-center gap-1.5">
+            <span className="p-1 sm:px-2.5 sm:py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/20 text-white font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase shadow-md flex items-center gap-1.5 flex-shrink-0">
               <SourceLogo source={item.source} url={item.url} className="w-3.5 h-3.5 border-0 bg-transparent p-0" />
-              <span className="truncate">{item.source}</span>
+              <span className="truncate hidden sm:inline max-w-[140px]">{item.source}</span>
             </span>
 
-            <span className={`px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full backdrop-blur-md border font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 shadow-lg ${roleStyle.badge}`}>
-              {isModelHub ? (
-                <Box className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              ) : isGithubRepo ? (
-                <GitBranch className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              ) : (
-                <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              )}
-              <span className="truncate max-w-[70px] sm:max-w-none">{roleStyle.label}</span>
+            <span className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full backdrop-blur-md border font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 shadow-lg ${roleStyle.badge}`}>
+              {roleStyle.icon}
+              <span className="truncate max-w-[75px] sm:max-w-none">{roleStyle.label}</span>
               {!isModelHub && !isGithubRepo && (
-                <span className="opacity-80 hidden xs:inline">[{confPct}%]</span>
+                <span className="opacity-80 hidden sm:inline">[{confPct}%]</span>
               )}
             </span>
           </div>
@@ -217,22 +223,16 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         {/* If card has NO image, show top badge row directly in card header */}
         {!hasImage && (
           <div className="flex items-center justify-between gap-2 pb-1">
-            <span className="px-2 py-0.5 rounded-full dark:bg-white/5 bg-black/5 dark:border-white/10 border-stone-200 border font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase truncate max-w-[170px] flex items-center gap-1.5 dark:text-gray-300 text-stone-700">
+            <span className="p-1 sm:px-2 py-0.5 rounded-full dark:bg-white/5 bg-black/5 dark:border-white/10 border-stone-200 border font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 dark:text-gray-300 text-stone-700">
               <SourceLogo source={item.source} url={item.url} className="w-3.5 h-3.5" />
-              <span className="truncate">{item.source}</span>
+              <span className="truncate hidden sm:inline max-w-[140px]">{item.source}</span>
             </span>
 
-            <span className={`px-2 py-0.5 rounded-full border font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase flex items-center gap-1 ${roleStyle.badge}`}>
-              {isModelHub ? (
-                <Box className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              ) : isGithubRepo ? (
-                <GitBranch className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              ) : (
-                <Sparkles className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              )}
-              <span className="truncate max-w-[70px] sm:max-w-none">{roleStyle.label}</span>
+            <span className={`px-2 sm:px-2.5 py-0.5 rounded-full border font-mono text-[9px] sm:text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5 shadow-sm ${roleStyle.badge}`}>
+              {roleStyle.icon}
+              <span className="truncate max-w-[75px] sm:max-w-none">{roleStyle.label}</span>
               {!isModelHub && !isGithubRepo && (
-                <span className="opacity-80 hidden xs:inline">[{confPct}%]</span>
+                <span className="opacity-80 hidden sm:inline">[{confPct}%]</span>
               )}
             </span>
           </div>
@@ -243,72 +243,35 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           {item.title}
         </h3>
 
-        {/* Description Snippet in crisp white */}
+        {/* Description Snippet: expanded and readable */}
         {item.description && (
-          <p className="text-[11px] sm:text-xs dark:text-white text-stone-800 font-sans leading-relaxed line-clamp-2 sm:line-clamp-3">
+          <p className="text-xs sm:text-[13px] dark:text-stone-300 text-stone-700 font-sans leading-relaxed line-clamp-4 sm:line-clamp-5">
             {item.description}
           </p>
         )}
 
-        {/* Specialized Metadata Bar or Jev Probability Bar */}
+        {/* Model Hub / GitHub Repo subtle indicator (if applicable) */}
         {isModelHub ? (
           <div className="pt-2 border-t dark:border-white/5 border-stone-200">
-            <div className="flex items-center justify-between font-mono text-[9px] dark:text-[#f59e0b] text-amber-800 dark:bg-[#e27d42]/10 bg-amber-50/80 px-2.5 py-1.5 rounded-lg border dark:border-[#e27d42]/20 border-amber-200">
+            <div className="flex items-center justify-between font-mono text-[9px] dark:text-[#f59e0b] text-amber-800 dark:bg-[#e27d42]/10 bg-amber-50/80 px-2.5 py-1 rounded-lg border dark:border-[#e27d42]/20 border-amber-200">
               <span className="flex items-center gap-1.5 font-bold">
                 <Box className="w-3.5 h-3.5 text-[#e27d42]" /> MODEL HUB ARTIFACT
               </span>
-              <span className="text-[8px] uppercase font-mono tracking-wider opacity-90">WEIGHTS & CHECKPOINTS</span>
+              <span className="text-[8px] uppercase font-mono tracking-wider opacity-90">CHECKPOINTS</span>
             </div>
           </div>
         ) : isGithubRepo ? (
           <div className="pt-2 border-t dark:border-white/5 border-stone-200">
-            <div className="flex items-center justify-between font-mono text-[9px] dark:text-emerald-400 text-emerald-800 dark:bg-emerald-950/30 bg-emerald-50/80 px-2.5 py-1.5 rounded-lg border dark:border-emerald-500/20 border-emerald-200">
+            <div className="flex items-center justify-between font-mono text-[9px] dark:text-emerald-400 text-emerald-800 dark:bg-emerald-950/30 bg-emerald-50/80 px-2.5 py-1 rounded-lg border dark:border-emerald-500/20 border-emerald-200">
               <span className="flex items-center gap-1.5 font-bold">
                 <GitBranch className="w-3.5 h-3.5 text-emerald-500" /> OPEN SOURCE REPO
               </span>
-              <span className="text-[8px] uppercase font-mono tracking-wider opacity-90">TRENDING CODEBASE</span>
+              <span className="text-[8px] uppercase font-mono tracking-wider opacity-90">TRENDING CODE</span>
             </div>
           </div>
-        ) : (
-          <div className="space-y-1 sm:space-y-1.5 pt-1.5 sm:pt-2 border-t dark:border-white/5 border-stone-200">
-            <div className="flex items-center justify-between font-mono text-[8px] sm:text-[9px] dark:text-gray-400 text-stone-500">
-              <span>JEV PROBABILITY</span>
-              <span className="text-[#c25e24] dark:text-[#f59e0b] font-bold">CONF: {confPct}%</span>
-            </div>
+        ) : null}
 
-            <div className="w-full h-1 sm:h-1.5 rounded-full dark:bg-black/70 bg-stone-200 overflow-hidden flex border dark:border-white/10 border-stone-300 p-0.5 gap-0.5">
-              <div
-                title={`Researcher: ${resScore}%`}
-                style={{ width: `${Math.max(resScore, 1)}%` }}
-                className="h-full bg-cyan-500 rounded-sm transition-all"
-              />
-              <div
-                title={`Engineer: ${engScore}%`}
-                style={{ width: `${Math.max(engScore, 1)}%` }}
-                className="h-full bg-emerald-500 rounded-sm transition-all"
-              />
-              <div
-                title={`Startup: ${startScore}%`}
-                style={{ width: `${Math.max(startScore, 1)}%` }}
-                className="h-full bg-[#e27d42] rounded-sm transition-all"
-              />
-              <div
-                title={`Noise: ${noiseScore}%`}
-                style={{ width: `${Math.max(noiseScore, 1)}%` }}
-                className="h-full bg-purple-500 rounded-sm transition-all"
-              />
-            </div>
-
-            <div className="grid grid-cols-4 gap-0.5 sm:gap-1 font-mono text-[8px] sm:text-[9px] text-center dark:text-gray-400 text-stone-600 pt-0.5">
-              <div className="dark:bg-cyan-950/40 bg-cyan-50 rounded px-0.5 sm:px-1 py-0.5 text-cyan-600 dark:text-cyan-300 font-medium truncate">R:{resScore}%</div>
-              <div className="dark:bg-emerald-950/40 bg-emerald-50 rounded px-0.5 sm:px-1 py-0.5 text-emerald-600 dark:text-emerald-300 font-medium truncate">E:{engScore}%</div>
-              <div className="dark:bg-[#e27d42]/20 bg-amber-50 rounded px-0.5 sm:px-1 py-0.5 text-amber-700 dark:text-[#f59e0b] font-medium truncate">S:{startScore}%</div>
-              <div className="dark:bg-purple-950/40 bg-purple-50 rounded px-0.5 sm:px-1 py-0.5 text-purple-600 dark:text-purple-300 font-medium truncate">N:{noiseScore}%</div>
-            </div>
-          </div>
-        )}
-
-        {/* Card Footer: Left Source Logo/Name | Right Date */}
+        {/* Card Footer: Left Source Logo/Name | Right Corner Confidence & Date */}
         <div className="flex items-center justify-between pt-2 sm:pt-2.5 border-t dark:border-white/5 border-stone-200 font-mono text-[9px] sm:text-[10px] dark:text-gray-300 text-stone-600">
           {/* Bottom Left: Source Logo & Name */}
           <div className="flex items-center gap-1.5 truncate max-w-[170px]" title={item.source}>
@@ -318,10 +281,18 @@ export const NewsCard: React.FC<NewsCardProps> = ({
             </span>
           </div>
 
-          {/* Bottom Right: Date */}
-          <div className="flex items-center gap-1 text-stone-500 dark:text-gray-400 flex-shrink-0">
-            <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-stone-400 dark:text-gray-500" />
-            <span>{formattedDate}</span>
+          {/* Bottom Right: Small Corner Confidence & Date */}
+          <div className="flex items-center gap-2 text-stone-500 dark:text-gray-400 flex-shrink-0">
+            {!isModelHub && !isGithubRepo && (
+              <span className="hidden sm:inline-flex text-[#c25e24] dark:text-[#f59e0b] font-bold text-[9px] sm:text-[10px] items-center gap-0.5">
+                <Sparkles className="w-2.5 h-2.5 text-[#e27d42]" />
+                {confPct}%
+              </span>
+            )}
+            <div className="flex items-center gap-1">
+              <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-stone-400 dark:text-gray-500" />
+              <span>{formattedDate}</span>
+            </div>
           </div>
         </div>
       </div>
